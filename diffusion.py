@@ -1,4 +1,5 @@
 import itertools
+from collections import OrderedDict
 from dataclasses import dataclass
 
 import hydra.utils
@@ -8,15 +9,17 @@ import torch
 import torch.nn.functional as F
 import transformers
 from tqdm import tqdm
-from collections import OrderedDict
 
 import dataloader
 import metrics
 import models
 import noise_schedule
 import utils
-import numpy as np
-import itertools
+from exact_likelihood import compute_exact_loglikelihood
+from selection_strategies import (
+    BlockGreedyConfidenceStrategy,
+    GreedyConfidenceStrategy,
+)
 
 def _sample_categorical(categorical_probs):
   gumbel_norm = (1e-10 - (torch.rand_like(categorical_probs) + 1e-10).log())
@@ -108,12 +111,20 @@ class Diffusion(L.LightningModule):
       self.register_buffer('sampling_eps_max', torch.tensor(
         self.config.training.sampling_eps_max))
       
+    self.exact_eval_enabled = (self.config.mode == 'exact_ppl')
+    if self.exact_eval_enabled:
+      self.exact_ll_strategy_name = getattr(
+        self.config.eval, 'exact_ll_strategy', 'block_greedy'
+      )
+      self.exact_ll_k = getattr(self.config.eval, 'exact_ll_k', 1)
+      self._init_exact_ll_strategy()
+      
     self.time_conditioning = self.config.algo.time_conditioning
     self.neg_infinity = -1000000.0
     self.fast_forward_epochs = None
     self.fast_forward_batches = None
     self._validate_configuration()
-
+    
   def _get_parameters(self):
     parameters = [self.backbone.parameters(),
                   self.noise.parameters()]
@@ -148,6 +159,53 @@ class Diffusion(L.LightningModule):
     if self.config.model.attn_backend == 'flex':
       assert self.config.algo.name == 'bd3lm', 'Custom FlexAttention mask only supported for BD3LM.'
       
+  def _init_exact_ll_strategy(self):
+    """Initialize exact LL decoding strategy."""
+    if self.exact_ll_strategy_name == 'greedy':
+        self.exact_ll_strategy = GreedyConfidenceStrategy(k=self.exact_ll_k)
+    elif self.exact_ll_strategy_name == 'block_greedy':
+        self.exact_ll_strategy = BlockGreedyConfidenceStrategy(
+            block_size=self.block_size,
+            k=self.exact_ll_k
+        )
+    else:
+        raise ValueError(f"Unknown strategy: {self.exact_ll_strategy_name}")
+      
+  def _compute_exact_ll(self, x0, attention_mask):
+    """
+    Compute exact log-likelihood using deterministic decoding.
+    
+    Returns:
+        Dictionary with 'nll', 'nll_per_token', 'ppl'
+    """
+    def model_forward_fn(inputs):
+        sigma_zero = torch.zeros(inputs.shape[0], 1, device=inputs.device)
+        with torch.no_grad():
+            model_logits = self.forward(inputs, sigma_zero, sample_mode=True)
+        return model_logits
+    
+    # Compute exact LL
+    ll_total = compute_exact_loglikelihood(
+        x0=x0,
+        model_forward_fn=model_forward_fn,
+        mask_token_id=self.mask_index,
+        strategy=self.exact_ll_strategy,
+        attention_mask=attention_mask,
+    )
+    
+    # Convert to NLL and perplexity
+    answer_lens = attention_mask.sum(dim=1)
+    nll = -ll_total  # Negative log-likelihood
+    nll_per_token = nll / answer_lens
+    ppl = torch.exp(nll_per_token)
+    
+    return {
+        'nll': nll,
+        'nll_per_token': nll_per_token,
+        'ppl': ppl,
+        'answer_lens': answer_lens,
+    }
+    
   def to(self, *args, **kwargs):
     self = super().to(*args, **kwargs) 
     self.metrics.to(*args, **kwargs)
@@ -319,7 +377,10 @@ class Diffusion(L.LightningModule):
     return sigma
 
   def forward(self, x, sigma, sample_mode=False, store_kv=False):
-    """Returns log score."""
+    """Returns log score.
+    
+    Nit: It is not clearly documented when we return logits vs log probabilities.
+    """
     sigma = self._process_sigma(sigma)
     with torch.amp.autocast('cuda', dtype=torch.float32):
       if self.config.algo.name == 'bd3lm':
@@ -383,12 +444,21 @@ class Diffusion(L.LightningModule):
     self.sampling_eps = self.config.training.sampling_eps
 
   def on_validation_epoch_end(self):
-    for k, v in self.metrics.valid_nlls.items():
-      self.log(name=k,  value=v.compute(), on_step=False,
-              on_epoch=True, sync_dist=True)
+    if not self.exact_eval_enabled:
+      for k, v in self.metrics.valid_nlls.items():
+        self.log(name=k,  value=v.compute(), on_step=False,
+                on_epoch=True, sync_dist=True)
+    if self.exact_eval_enabled:
+      exact_nll = self.metrics.exact_valid_nlls.compute()
+      exact_ppl = torch.exp(exact_nll)
+      
+      self.log('val/exact_nll', exact_nll, 
+                on_epoch=True, sync_dist=True)
+      self.log('val/exact_ppl', exact_ppl,
+                on_epoch=True, sync_dist=True)
     if self.ema:
       self.ema.restore(self._get_parameters())
-    if self.var_min and not self.trainer.sanity_checking:
+    if self.var_min and not self.trainer.sanity_checking and not self.exact_eval_enabled:
       self._clipped_schedule_search()
       self.log('sampling_eps_min',
                self.sampling_eps_min,
@@ -412,7 +482,8 @@ class Diffusion(L.LightningModule):
     return False # not a valid elbo (biased estimate)
       
   def validation_step(self, batch, batch_idx):
-    if self.var_min:
+    losses = None
+    if self.var_min and not self.exact_eval_enabled:
       for noise_clip_start in self.metrics.valid_vars.keys():
         sampling_eps_min, sampling_eps_max = noise_clip_start
         if self._check_val_sampling_intvl(sampling_eps_min, sampling_eps_max) == True:
@@ -437,20 +508,62 @@ class Diffusion(L.LightningModule):
           self.metrics.valid_vars[noise_clip_start].append(
             nlls.reshape(
               nlls.shape[0], -1, self.block_size).mean(-1))
-    elif self.block_size == 1:
+    elif self.block_size == 1 and not self.exact_eval_enabled:
       # nll
       losses = self._loss(batch['input_ids'],
                           batch['attention_mask'],
                           sampling_eps_min=1,
                           sampling_eps_max=1)
-    else:
+    elif not self.exact_eval_enabled:
       # nelbo
       losses = self._loss(batch['input_ids'],
                           batch['attention_mask'],
                           sampling_eps_min=1e-3,
                           sampling_eps_max=1)
-    self.metrics.valid_nlls.update(losses.nlls, losses.token_mask)
-    return losses.loss
+    if losses is not None:
+      self.metrics.valid_nlls.update(losses.nlls, losses.token_mask)
+    
+    # Exact log-likelihood computation
+    if self.exact_eval_enabled:
+      exact_results = self._compute_exact_ll(
+        x0=batch['input_ids'],
+        attention_mask=batch['attention_mask']
+      )
+      
+      self.metrics.exact_valid_nlls.update(
+        exact_results['nll_per_token'],
+        exact_results['answer_lens']
+      )
+      
+      # Per-step logging (current batch)
+      batch_nll = exact_results['nll_per_token'].mean()
+      batch_ppl = torch.exp(batch_nll)
+      self.log(
+          'val/exact_ppl_step',
+          batch_ppl,
+          on_step=True,
+          on_epoch=False,
+          prog_bar=True,
+          sync_dist=True
+        )
+
+      # Running average up to this point
+      running_nll = self.metrics.exact_valid_nlls.compute()
+      if torch.isfinite(running_nll):
+          running_ppl = torch.exp(running_nll)
+          self.log(
+              'val/exact_ppl_running',
+              running_ppl,
+              on_step=True,
+              on_epoch=False,
+              prog_bar=False,
+              sync_dist=True
+            )
+
+    if losses is not None:
+      return losses.loss
+    device = batch['input_ids'].device
+    return torch.tensor(0.0, device=device)
 
   def configure_optimizers(self):
     # TODO(yair): Lightning currently giving this warning when using `fp16`:

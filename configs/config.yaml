@@ -8,7 +8,7 @@ defaults:
   - /lr_scheduler: constant_warmup
   - /algo: bd3lm
 
-mode: train  # train / ppl_eval / sample_eval
+mode: train  # train / ppl_eval / sample_eval / exact_ppl
 diffusion: absorbing_state
 
 seed: 1
@@ -51,6 +51,8 @@ eval:
   compute_perplexity_on_sanity: False
   gen_ppl_eval_model_name_or_path: gpt2-large  # gpt2-large, meta-llama/Llama-2-7b-hf
   generate_samples: False
+  exact_ll_strategy: 'block_greedy'
+  exact_ll_k: 1
 
 optim:
   weight_decay: 0
@@ -80,7 +82,7 @@ wandb:
   group: null
   job_type: null
   name: null
-  id: ${.name}_${seed}
+  id: ${.name}_${seed}_${now:%Y%m%d_%H%M%S}
   tags:
     - ${noise.type}
     - ${data.train}

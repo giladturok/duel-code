@@ -1,4 +1,5 @@
 import os
+os.environ['TRITON_NUM_STAGES'] = '1'
 import fsspec
 import hydra
 import lightning as L
@@ -215,8 +216,11 @@ def main(config):
   if config.mode == 'sample_eval':
     config.wandb = None
     samples = generate_samples(config, logger, tokenizer)
-  elif config.mode == 'ppl_eval':
-    config.wandb = None
+  elif config.mode in {'ppl_eval', 'exact_ppl'}:
+    if config.get('wandb', None) is not None:
+      config.wandb = dict(config.wandb)
+    else:
+      config.wandb = None
     _ppl_eval(config, logger, tokenizer)
   else:
     _train(config, logger, tokenizer)

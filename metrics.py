@@ -44,6 +44,9 @@ class Metrics:
       self.block_size = config.block_size
     else:
       self.block_size = config.model.length
+    self.exact_eval_enabled = (config.mode == 'exact_ppl')
+    if self.exact_eval_enabled:
+      self.exact_valid_nlls = torchmetrics.aggregation.MeanMetric()
       
     self.nfes = NFEs()
     self.train_nlls = metrics.clone(prefix='train/')
@@ -92,6 +95,10 @@ class Metrics:
     self.gen_ppl = self.gen_ppl.to(*args, **kwargs)
     self.nfes = self.nfes.to(*args, **kwargs)
     self.gen_entropy = self.gen_entropy.to(*args, **kwargs)
+    
+    # Add exact_valid_nlls if it exists
+    if self.exact_eval_enabled:
+        self.exact_valid_nlls = self.exact_valid_nlls.to(*args, **kwargs)
 
   def reset(self):
     self.gen_ppls, self.gen_nfes, self.gen_entropies, self.gen_lengths \
@@ -103,6 +110,8 @@ class Metrics:
     self.nfes.reset()
     if getattr(self.config.algo, 'var_min', None):
       self.init_valid_vars()
+    if self.exact_eval_enabled:
+      self.exact_valid_nlls.reset()
 
   @torch.no_grad()
   def _eval_retokenize(self, text_samples, max_length,
