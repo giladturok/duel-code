@@ -2,6 +2,7 @@ import itertools
 from collections import OrderedDict
 from dataclasses import dataclass
 
+import datasets
 import hydra.utils
 import lightning as L
 import numpy as np
@@ -15,10 +16,20 @@ import metrics
 import models
 import noise_schedule
 import utils
-from exact_likelihood import compute_exact_loglikelihood
+from exact_likelihood import (
+  compute_exact_loglikelihood,
+  compute_exact_loglikelihood_cached,
+  compute_exact_loglikelihood_cached_permutations,
+)
 from selection_strategies import (
+    BlockLeftToRightStrategy,
+    BlockProbabilityMarginStrategy,
     BlockGreedyConfidenceStrategy,
+    BlockConfidenceThresholdStrategy,
+    ConfidenceThresholdStrategy,
     GreedyConfidenceStrategy,
+    LeftToRightStrategy,
+    ProbabilityMarginStrategy,
 )
 
 def _sample_categorical(categorical_probs):
@@ -112,18 +123,57 @@ class Diffusion(L.LightningModule):
         self.config.training.sampling_eps_max))
       
     self.exact_eval_enabled = (self.config.mode == 'exact_ppl')
+    self.exact_ll_use_kv_cache = False
     if self.exact_eval_enabled:
       self.exact_ll_strategy_name = getattr(
         self.config.eval, 'exact_ll_strategy', 'block_greedy'
       )
       self.exact_ll_k = getattr(self.config.eval, 'exact_ll_k', 1)
       self._init_exact_ll_strategy()
+      self.exact_ll_use_kv_cache = getattr(
+        self.config.eval, 'exact_ll_use_kv_cache', False)
       
+    self.generation_strategy = None
+    if hasattr(self.config, 'sampling') and hasattr(self.config.sampling, 'strategy'):
+        self._init_generation_strategy()
+    
     self.time_conditioning = self.config.algo.time_conditioning
     self.neg_infinity = -1000000.0
     self.fast_forward_epochs = None
     self.fast_forward_batches = None
     self._validate_configuration()
+    # In Diffusion.__init__, after exact_eval initialization:
+
+
+  def _init_generation_strategy(self):
+    """Initialize generation strategy from config."""
+    strategy_name = getattr(self.config.sampling, 'strategy', 'uniform')
+    k = getattr(self.config.sampling, 'strategy_k', 1)
+    
+    strategy_map = {
+        'greedy': GreedyConfidenceStrategy,
+        'block_greedy': BlockGreedyConfidenceStrategy,
+        'left_to_right': LeftToRightStrategy,
+        'block_left_to_right': BlockLeftToRightStrategy,
+        'probability_margin': ProbabilityMarginStrategy,
+        'block_probability_margin': BlockProbabilityMarginStrategy,
+        'confidence_threshold': ConfidenceThresholdStrategy,
+        'block_confidence_threshold': BlockConfidenceThresholdStrategy,
+    }
+    
+    if strategy_name == 'uniform':
+        self.generation_strategy = None  # Use original _semi_ar_sampler
+        return
+        
+    strategy_cls = strategy_map.get(strategy_name)
+    if strategy_cls is None:
+        raise ValueError(f"Unknown generation strategy: {strategy_name}")
+    
+    # Block strategies need block_size
+    if 'block' in strategy_name:
+        self.generation_strategy = strategy_cls(block_size=self.block_size, k=k)
+    else:
+        self.generation_strategy = strategy_cls(k=k)
     
   def _get_parameters(self):
     parameters = [self.backbone.parameters(),
@@ -168,34 +218,135 @@ class Diffusion(L.LightningModule):
             block_size=self.block_size,
             k=self.exact_ll_k
         )
+    elif self.exact_ll_strategy_name == 'left_to_right':
+        self.exact_ll_strategy = LeftToRightStrategy(k=self.exact_ll_k)
+    elif self.exact_ll_strategy_name == 'block_left_to_right':
+        self.exact_ll_strategy = BlockLeftToRightStrategy(
+            block_size=self.block_size,
+            k=self.exact_ll_k
+        )
+    elif self.exact_ll_strategy_name == 'probability_margin':
+        self.exact_ll_strategy = ProbabilityMarginStrategy(k=self.exact_ll_k)
+    elif self.exact_ll_strategy_name == 'block_probability_margin':
+        self.exact_ll_strategy = BlockProbabilityMarginStrategy(
+            block_size=self.block_size,
+            k=self.exact_ll_k
+        )
+    elif self.exact_ll_strategy_name == 'block_confidence_threshold':
+        self.exact_ll_strategy = BlockConfidenceThresholdStrategy(
+            block_size=self.block_size,
+            k=self.exact_ll_k,
+        )
+    elif self.exact_ll_strategy_name == 'confidence_threshold':
+        self.exact_ll_strategy = ConfidenceThresholdStrategy(
+            k=self.exact_ll_k,
+        )
     else:
         raise ValueError(f"Unknown strategy: {self.exact_ll_strategy_name}")
       
-  def _compute_exact_ll(self, x0, attention_mask):
+  def _compute_sigma_for_exact_ll(self, x_t: torch.Tensor, attention_mask: torch.Tensor = None) -> torch.Tensor:
+    num_masked = (x_t == self.mask_index).sum(dim=-1, keepdim=True).float()
+    
+    if attention_mask is not None:
+        seq_len = attention_mask.sum(dim=-1, keepdim=True).float()
+    else:
+        seq_len = torch.full((x_t.shape[0], 1), x_t.shape[-1], 
+                             device=x_t.device, dtype=torch.float)
+    
+    mask_frac = num_masked / seq_len
+    
+    # Clamp to avoid numerical issues
+    eps = 1e-1
+    mask_frac = mask_frac.clamp(min=eps, max=1.0 - eps)
+    
+    # CORRECT: σ = -log(1 - mask_frac), NOT -log(1 - (1-ε)*mask_frac)
+    sigma = -torch.log1p(-mask_frac)
+    
+    sigma_min = self.noise.sigma_min.to(sigma.device)
+    sigma_max = self.noise.sigma_max.to(sigma.device)
+    
+    sigma = torch.clamp(sigma, min=sigma_min, max=sigma_max)
+    return sigma
+
+  def _compute_exact_ll(self, x0, attention_mask, use_kv_cache=None):
     """
     Compute exact log-likelihood using deterministic decoding.
     
-    Returns:
-        Dictionary with 'nll', 'nll_per_token', 'ppl'
+    Handles both SUBS (MDLM/BD3-LM) and SEDD parameterizations correctly:
+    - SUBS: sigma=0 is fine (not used in output parameterization)
+    - SEDD: sigma must reflect current mask fraction (RADD Theorem 1)
     """
-    def model_forward_fn(inputs):
-        sigma_zero = torch.zeros(inputs.shape[0], 1, device=inputs.device)
-        with torch.no_grad():
-            model_logits = self.forward(inputs, sigma_zero, sample_mode=True)
-        return model_logits
     
-    # Compute exact LL
-    ll_total = compute_exact_loglikelihood(
-        x0=x0,
-        model_forward_fn=model_forward_fn,
-        mask_token_id=self.mask_index,
-        strategy=self.exact_ll_strategy,
-        attention_mask=attention_mask,
-    )
+    if self.ignore_bos:
+        attention_mask[:, 0] = 0
+    
+    def model_forward_fn(inputs, commit=False):
+        """
+        Forward pass that computes correct sigma for SEDD.
+        
+        Args:
+            inputs: Current sequence with masks [B, L]
+            commit: If True, advance KV cache after forward
+        Returns:
+            logits: [B, L, V] log-probabilities (SUBS) or log-scores (SEDD)
+        """
+        # Compute sigma based on parameterization
+        if self.parameterization == 'sedd':
+            # SEDD requires sigma reflecting current noise level
+            sigma = self._compute_sigma_for_exact_ll(inputs, attention_mask)
+        else:
+            # SUBS/AR: backbone may use sigma for time conditioning,
+            # but output parameterization doesn't depend on it
+            sigma = torch.zeros(inputs.shape[0], 1, device=inputs.device)
+        
+        with torch.no_grad():
+            logits = self.forward(
+                inputs,
+                sigma,
+                sample_mode=True,
+                store_kv=commit
+            )
+        
+        # At masked positions, exclude mask token from normalization
+        # SEDD sets mask token log-score to 0, but we want -inf for exact LL        
+        if self.parameterization == "sedd":
+            is_masked = (inputs == self.mask_index)
+            # Get explicit indices where mask is True
+            batch_idx, seq_idx = is_masked.nonzero(as_tuple=True)
+            # Set mask token logit to -inf at those positions
+            logits[batch_idx, seq_idx, self.mask_index] = float('-inf')
+            
+        return logits
+    
+    # Determine caching strategy
+    if use_kv_cache is None:
+        use_kv_cache = getattr(self, 'exact_ll_use_kv_cache', False)
+    
+    if use_kv_cache:
+        if not hasattr(self.backbone, 'reset_kv_cache'):
+            raise RuntimeError("Backbone does not support KV caching.")
+        self.backbone.reset_kv_cache(eval_batch_size=x0.size(0))
+        
+        ll_total, steps = compute_exact_loglikelihood_cached(
+            x0=x0,
+            model_forward_fn=model_forward_fn,
+            mask_token_id=self.mask_index,
+            strategy=self.exact_ll_strategy,
+            attention_mask=attention_mask,
+            block_size=self.block_size,
+        )
+    else:
+        ll_total, steps = compute_exact_loglikelihood(
+            x0=x0,
+            model_forward_fn=model_forward_fn,
+            mask_token_id=self.mask_index,
+            strategy=self.exact_ll_strategy,
+            attention_mask=attention_mask,
+        )
     
     # Convert to NLL and perplexity
     answer_lens = attention_mask.sum(dim=1)
-    nll = -ll_total  # Negative log-likelihood
+    nll = -ll_total
     nll_per_token = nll / answer_lens
     ppl = torch.exp(nll_per_token)
     
@@ -204,6 +355,7 @@ class Diffusion(L.LightningModule):
         'nll_per_token': nll_per_token,
         'ppl': ppl,
         'answer_lens': answer_lens,
+        'steps': steps if steps is not None else None,
     }
     
   def to(self, *args, **kwargs):
@@ -381,7 +533,8 @@ class Diffusion(L.LightningModule):
     
     Nit: It is not clearly documented when we return logits vs log probabilities.
     """
-    sigma = self._process_sigma(sigma)
+    if sigma.any() is not None:
+      sigma = self._process_sigma(sigma)
     with torch.amp.autocast('cuda', dtype=torch.float32):
       if self.config.algo.name == 'bd3lm':
         logits = self.backbone(x, sigma,
@@ -397,7 +550,7 @@ class Diffusion(L.LightningModule):
       else:
         logits = self.backbone(x, sigma)
 
-    if self.cross_attn:
+    if self.cross_attn and not sample_mode:
       x = x[:, :self.config.model.length]
     if self.parameterization == 'subs':
       return self._subs_parameterization(logits=logits,
@@ -482,86 +635,138 @@ class Diffusion(L.LightningModule):
     return False # not a valid elbo (biased estimate)
       
   def validation_step(self, batch, batch_idx):
-    losses = None
-    if self.var_min and not self.exact_eval_enabled:
-      for noise_clip_start in self.metrics.valid_vars.keys():
-        sampling_eps_min, sampling_eps_max = noise_clip_start
-        if self._check_val_sampling_intvl(sampling_eps_min, sampling_eps_max) == True:
-          # compute and record nelbo
-          losses_clip = self._loss(batch['input_ids'],
-                            batch['attention_mask'],
-                            sampling_eps_min=sampling_eps_min,
-                            sampling_eps_max=sampling_eps_max)
-          losses = Loss(
-            nlls=losses_clip.nlls.clone(),
-            token_mask=losses_clip.token_mask,
-            loss=losses_clip.loss.clone())
-        elif len(self.metrics.valid_vars[noise_clip_start]) < 100:
-          # elbo from clipped schedule (biased estimate)
-          losses_clip = self._loss(batch['input_ids'],
-                            batch['attention_mask'],
-                            sampling_eps_min=sampling_eps_min,
-                            sampling_eps_max=sampling_eps_max)
-        if len(self.metrics.valid_vars[noise_clip_start]) < 100:
-          # only report variance over 100 batches
-          nlls = losses_clip.nlls
-          self.metrics.valid_vars[noise_clip_start].append(
-            nlls.reshape(
-              nlls.shape[0], -1, self.block_size).mean(-1))
-    elif self.block_size == 1 and not self.exact_eval_enabled:
-      # nll
-      losses = self._loss(batch['input_ids'],
-                          batch['attention_mask'],
-                          sampling_eps_min=1,
-                          sampling_eps_max=1)
-    elif not self.exact_eval_enabled:
-      # nelbo
-      losses = self._loss(batch['input_ids'],
-                          batch['attention_mask'],
-                          sampling_eps_min=1e-3,
-                          sampling_eps_max=1)
-    if losses is not None:
-      self.metrics.valid_nlls.update(losses.nlls, losses.token_mask)
-    
-    # Exact log-likelihood computation
+    """
+    Validation step supporting multiple evaluation modes:
+    1. Exact log-likelihood (if exact_eval_enabled)
+    2. Variance minimization (if var_min)
+    3. Standard ELBO/NLL evaluation
+    """
+    # ========================================
+    # Check exact evaluation first
+    # ========================================
     if self.exact_eval_enabled:
-      exact_results = self._compute_exact_ll(
+        return self._validation_step_exact_likelihood(batch)
+    
+    # ========================================
+    # Original validation logic (from GitHub)
+    # ========================================
+    if self.var_min:
+        for noise_clip_start in self.metrics.valid_vars.keys():
+            sampling_eps_min, sampling_eps_max = noise_clip_start
+            if self._check_val_sampling_intvl(sampling_eps_min, sampling_eps_max) == True:
+                # compute and record nelbo
+                losses_clip = self._loss(batch['input_ids'],
+                                  batch['attention_mask'],
+                                  sampling_eps_min=sampling_eps_min,
+                                  sampling_eps_max=sampling_eps_max)
+                losses = Loss(
+                    nlls=losses_clip.nlls.clone(),
+                    token_mask=losses_clip.token_mask,
+                    loss=losses_clip.loss.clone())
+            elif len(self.metrics.valid_vars[noise_clip_start]) < 100:
+                # elbo from clipped schedule (biased estimate)
+                losses_clip = self._loss(batch['input_ids'],
+                                  batch['attention_mask'],
+                                  sampling_eps_min=sampling_eps_min,
+                                  sampling_eps_max=sampling_eps_max)
+            if len(self.metrics.valid_vars[noise_clip_start]) < 100:
+                # only report variance over 100 batches
+                nlls = losses_clip.nlls
+                self.metrics.valid_vars[noise_clip_start].append(
+                    nlls.reshape(
+                        nlls.shape[0], -1, self.block_size).mean(-1))
+    elif self.block_size == 1:
+        # nll
+        losses = self._loss(batch['input_ids'],
+                            batch['attention_mask'],
+                            sampling_eps_min=1,
+                            sampling_eps_max=1)
+    else:
+        # nelbo
+        losses = self._loss(batch['input_ids'],
+                            batch['attention_mask'],
+                            sampling_eps_min=1e-3,
+                            sampling_eps_max=1)
+    
+    self.metrics.valid_nlls.update(losses.nlls, losses.token_mask)
+    batch_nll = losses.nlls.mean()
+    batch_ppl = torch.exp(batch_nll)
+    self.log(
+        'val/ppl_step',
+        batch_ppl,
+        on_step=True,
+        on_epoch=False,
+        prog_bar=True,
+        sync_dist=True
+    )
+    return losses.loss
+
+
+  def _validation_step_exact_likelihood(self, batch):
+    """
+    Compute exact log-likelihood via deterministic iterative unmasking.
+    
+    This method works for both BD3-LM and MDLM because:
+    - sample_mode=True forces both models to use non-causal attention
+    - BD3-LM: Uses block-causal mask or no mask (with KV cache)
+    - MDLM: Uses non-causal attention (always)
+    
+    Args:
+        batch: Dictionary with 'input_ids' and 'attention_mask'
+    
+    Returns:
+        torch.Tensor: Zero loss (exact evaluation doesn't use loss for backprop)
+    """
+    # Compute exact log-likelihood
+    exact_results = self._compute_exact_ll(
         x0=batch['input_ids'],
-        attention_mask=batch['attention_mask']
-      )
-      
-      self.metrics.exact_valid_nlls.update(
+        attention_mask=batch['attention_mask'],
+        use_kv_cache=self.exact_ll_use_kv_cache,
+    )
+    
+    # Update cumulative metrics across batches
+    self.metrics.exact_valid_nlls.update(
         exact_results['nll_per_token'],
         exact_results['answer_lens']
-      )
-      
-      # Per-step logging (current batch)
-      batch_nll = exact_results['nll_per_token'].mean()
-      batch_ppl = torch.exp(batch_nll)
-      self.log(
-          'val/exact_ppl_step',
-          batch_ppl,
-          on_step=True,
-          on_epoch=False,
-          prog_bar=True,
-          sync_dist=True
+    )
+    
+    # Log current batch perplexity
+    batch_nll = exact_results['nll_per_token'].mean()
+    batch_ppl = torch.exp(batch_nll)
+    self.log(
+        'val/exact_ppl_step',
+        batch_ppl,
+        on_step=True,
+        on_epoch=False,
+        prog_bar=True,
+        sync_dist=True
+    )
+    
+    # Log running average perplexity
+    running_nll = self.metrics.exact_valid_nlls.compute()
+    if torch.isfinite(running_nll):
+        running_ppl = torch.exp(running_nll)
+        self.log(
+            'val/exact_ppl_running',
+            running_ppl,
+            on_step=True,
+            on_epoch=False,
+            prog_bar=False,
+            sync_dist=True
         )
-
-      # Running average up to this point
-      running_nll = self.metrics.exact_valid_nlls.compute()
-      if torch.isfinite(running_nll):
-          running_ppl = torch.exp(running_nll)
-          self.log(
-              'val/exact_ppl_running',
-              running_ppl,
-              on_step=True,
-              on_epoch=False,
-              prog_bar=False,
-              sync_dist=True
-            )
-
-    if losses is not None:
-      return losses.loss
+        
+    # Log number of decoding steps (if available)
+    if exact_results['steps'] is not None:
+        self.log(
+            'val/num_decoding_steps',
+            exact_results['steps'],
+            on_step=True,
+            on_epoch=False,
+            prog_bar=False,
+            sync_dist=True
+        )
+    
+    # Return zero loss (exact evaluation doesn't use loss for optimization)
     device = batch['input_ids'].device
     return torch.tensor(0.0, device=device)
 
@@ -714,6 +919,202 @@ class Diffusion(L.LightningModule):
       return None, x_new
     else:
       return p_x0, x_new
+    
+  @torch.no_grad()
+  def _strategy_based_sampler(
+      self, 
+      n_samples: int, 
+      num_strides: int, 
+      seqlen: int,
+  ) -> tuple[torch.Tensor, int]:
+      """
+      Generate samples using a selection strategy (greedy, L2R, margin, etc.).
+      
+      Key difference from _semi_ar_sampler:
+      - Computes logits FIRST, then selects positions based on strategy
+      - No noise schedule; purely iterative unmasking
+      
+      Args:
+          n_samples: Batch size
+          num_strides: Number of blocks to generate
+          seqlen: Total sequence length
+          
+      Returns:
+          x_accum: Generated sequences [B, L]
+          sampling_steps: Number of forward passes
+      """
+      device = self.device
+      sampling_steps = 0
+      strategy = self.generation_strategy
+      
+      # Reset KV cache
+      if self.config.sampling.kv_cache:
+          self.backbone.reset_kv_cache(eval_batch_size=n_samples)
+      
+      # Initialize with BOS + masks
+      x_accum = self._sample_prior(n_samples, self.block_size).to(device)
+      x_accum[:, 0] = self.tokenizer.bos_token_id
+      
+      for stride_num in tqdm(range(num_strides), desc="Blocks"):
+          # Extend sequence for new block (except first)
+          if stride_num > 0:
+              new_block = self._sample_prior(n_samples, self.block_size).to(device)
+              x_accum = torch.cat([x_accum, new_block], dim=1)
+          
+          # Define current block bounds
+          block_start = stride_num * self.block_size
+          block_end = min(block_start + self.block_size, x_accum.shape[1])
+          block_slice = slice(block_start, block_end)
+          
+          # Iteratively unmask within current block
+          x_accum, steps = self._unmask_block_with_strategy(
+              x_accum, 
+              block_slice, 
+              strategy,
+          )
+          sampling_steps += steps
+          
+          # Commit block to KV cache after fully unmasked
+          if self.config.sampling.kv_cache:
+              sigma = torch.zeros(n_samples, 1, device=device)
+              _ = self.forward(
+                  x_accum[:, block_slice], 
+                  sigma, 
+                  sample_mode=True, 
+                  store_kv=True
+              )
+          
+          # Check stopping conditions
+          if x_accum.shape[1] > 256:
+              stop, x_accum = self._check_stop_conds(x_accum)
+              if stop and not self.config.sampling.var_length:
+                  return None, None
+              elif stop:
+                  break
+      
+      return x_accum, sampling_steps
+
+
+  @torch.no_grad()
+  def _unmask_block_with_strategy(
+      self,
+      x: torch.Tensor,           # [B, L] current sequence
+      block_slice: slice,        # Current block to unmask
+      strategy,                  # Selection strategy
+  ) -> tuple[torch.Tensor, int]:
+      """
+      Iteratively unmask a single block using the given strategy.
+      
+      Algorithm:
+  ```
+      while block has masked tokens:
+          logits = model(x)           # Forward pass
+          p_x0 = nucleus(softmax(logits))
+          positions = strategy.select(log(p_x0), is_masked)
+          x[positions] ~ Categorical(p_x0[positions])
+  ```
+      
+      Returns:
+          x: Sequence with block fully unmasked
+          steps: Number of forward passes
+      """
+      batch_size, seq_len = x.shape
+      device = x.device
+      steps = 0
+      
+      # Track unmasking progress for strategy
+      lengths = torch.full((batch_size,), seq_len, device=device, dtype=torch.long)
+      
+      while True:
+          # Check if block is fully unmasked
+          is_masked_in_block = (x[:, block_slice] == self.mask_index)
+          if not is_masked_in_block.any():
+              break
+          
+          steps += 1
+          
+          # 1. Forward pass (only current block for BD3-LM with cache)
+          sigma = torch.zeros(batch_size, 1, device=device)
+          if self.config.sampling.kv_cache:
+              logits = self.forward(
+                  x[:, block_slice], sigma, sample_mode=True, store_kv=False
+              )  # [B, block_size, V]
+              # Pad to full sequence for strategy interface
+              full_logits = torch.full(
+                  (batch_size, seq_len, logits.shape[-1]), 
+                  float('-inf'), 
+                  device=device
+              )
+              full_logits[:, block_slice] = logits
+          else:
+              full_logits = self.forward(x, sigma, sample_mode=True)  # [B, L, V]
+          
+          # 2. Apply nucleus sampling
+          p_x0 = full_logits.softmax(dim=-1)
+          p_x0 = self._nucleus_sample(p_x0)
+          log_probs = (p_x0 + 1e-10).log()  # Numerical stability
+          
+          # 3. Select positions via strategy
+          is_maskable = (x == self.mask_index)
+          # Restrict to current block
+          block_mask = torch.zeros(batch_size, seq_len, dtype=torch.bool, device=device)
+          block_mask[:, block_slice] = True
+          is_maskable = is_maskable & block_mask
+          
+          num_unmasked = (x != self.mask_index).sum(dim=1)
+          
+          positions = strategy.select_positions(
+              log_probs=log_probs,
+              is_maskable=is_maskable,
+              num_unmasked=num_unmasked,
+              lengths=lengths,
+          )  # [B, k]
+          
+          # 4. Sample tokens for selected positions
+          x = self._sample_at_positions(x, p_x0, positions)
+      
+      return x, steps
+
+
+  def _sample_at_positions(
+      self,
+      x: torch.Tensor,           # [B, L]
+      p_x0: torch.Tensor,        # [B, L, V] 
+      positions: torch.Tensor,   # [B, k]
+  ) -> torch.Tensor:
+      """
+      Sample tokens from p_x0 at specified positions.
+      
+      Uses Gumbel-max trick for sampling:
+      $$
+      \hat{x}_i = \arg\max_v \left[ \log p(v) - \log(-\log u_v) \right], \quad u_v \sim \text{Uniform}(0,1)
+      $$
+      """
+      batch_size = x.shape[0]
+      device = x.device
+      
+      valid = positions >= 0  # [B, k]
+      if not valid.any():
+          return x
+      
+      x = x.clone()
+      safe_positions = positions.clamp(min=0)  # [B, k]
+      
+      # Gather p_x0 at selected positions: [B, k, V]
+      pos_expanded = safe_positions.unsqueeze(-1).expand(-1, -1, p_x0.shape[-1])
+      p_at_pos = p_x0.gather(1, pos_expanded)  # [B, k, V]
+      
+      # Gumbel-max sampling
+      gumbel_noise = -torch.log(-torch.log(torch.rand_like(p_at_pos) + 1e-10) + 1e-10)
+      sampled_tokens = (p_at_pos.log() + gumbel_noise).argmax(dim=-1)  # [B, k]
+      
+      # Scatter sampled tokens back, only at valid positions
+      for b in range(batch_size):
+          for i, pos in enumerate(positions[b]):
+              if pos >= 0:
+                  x[b, pos] = sampled_tokens[b, i]
+      
+      return x
 
   @torch.no_grad()
   def _ar_sampler(self, bsz, context_len=1024):
@@ -778,14 +1179,31 @@ class Diffusion(L.LightningModule):
         self.metrics.gen_nfes.append(self.config.model.length)
       samples = torch.cat(samples, dim=0) 
       return self.tokenizer.batch_decode(samples)
-    if self.sampler == 'semi_ar':
+    # Strategy-based sampling (new path)
+    if self.generation_strategy is not None:
+        num_strides = seqlen // self.block_size
+        for _ in range(self.config.sampling.num_sample_batches):
+            sample_i, num_tries = None, 0
+            while sample_i is None and num_tries < 10:
+                num_tries += 1
+                sample_i, nfes = self._strategy_based_sampler(
+                    n_samples=batch_size_per_gpu,
+                    num_strides=num_strides,
+                    seqlen=seqlen,
+                )
+            if sample_i is None:
+                raise ValueError('Strategy-based sampling failed.')
+            samples.append(sample_i)
+            self.metrics.nfes.update(nfes)
+            self.metrics.gen_nfes.append(nfes)
+    elif self.sampler == 'semi_ar':
       for _ in range(self.config.sampling.num_sample_batches):
         sample_i, num_tries = None, 0
         while sample_i is None:
           num_tries += 1
           sample_i, nfes = self._semi_ar_sampler(
             n_samples=batch_size_per_gpu,
-            num_strides=(seqlen // self.block_size), 
+            num_strides=max(1, seqlen // self.block_size), 
             num_steps=num_steps,
             seqlen=seqlen)
           if num_tries > 10:
@@ -832,6 +1250,42 @@ class Diffusion(L.LightningModule):
       self.config.model.length,
       self.config.loader.eval_batch_size,
       self.device)
+    
+    n_samples = len(samples)
+    reference_dataset = datasets.load_dataset(
+        "openwebtext",
+        split="train[-100000:]",
+        cache_dir=self.config.data.cache_dir,
+        streaming=False,
+        trust_remote_code=True,
+    )
+    if len(reference_dataset) > n_samples:
+        indices = torch.randperm(len(reference_dataset))[:n_samples].tolist()
+        reference_subset = reference_dataset.select(indices)
+    else:
+        reference_subset = reference_dataset
+        
+    reference_text = [ex['text'] for ex in reference_subset]
+    
+    def truncate_to_tokens(text, max_tokens, tokenizer):
+        """Truncate text to approximately max_tokens."""
+        tokens = tokenizer.encode(text, add_special_tokens=False)
+        if len(tokens) > max_tokens:
+            tokens = tokens[:max_tokens]
+        return tokenizer.decode(tokens)
+    
+    max_text_length = 1024 # Adjust as needed
+    reference_text = [
+        truncate_to_tokens(t, max_text_length, self.tokenizer) 
+        for t in reference_text
+    ]
+    
+    mauve_score = self.metrics.record_mauve_score(
+        generated_text=samples,
+        reference_text=reference_text,
+        max_text_length=max_text_length,
+        device_id=0,
+    )
     return samples
 
   def get_score(self, x, sigma):
@@ -1184,8 +1638,8 @@ class Diffusion(L.LightningModule):
 
     # CRITERION 2: always stop sampling if entropy is low
     entropy = self._compute_entropy(x[:, -256:])
-    if entropy < 4:
-      stop = True
+    # if entropy < 4:
+    #   stop = True
 
     # for variable length sampling, check if we should stop
     # sampling, and where to truncate the sample
@@ -1198,9 +1652,9 @@ class Diffusion(L.LightningModule):
           truncate_idx = min(eos_idx[1][1]+1, x.shape[1])
 
       # CRITERION 2: stop if entropy/likelihood is low
-      if entropy < 4:
-        stop = True
-        truncate_idx = x.shape[1] - 256
+      # if entropy < 4:
+        # stop = True
+        # truncate_idx = x.shape[1] - 256
 
     # truncate sample (variable-length sampling only)
     if truncate_idx is not None:

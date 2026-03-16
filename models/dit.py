@@ -716,10 +716,13 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
     else:
       raise ValueError('Unknown attention backend')
     
-  def reset_kv_cache(self):
+  def reset_kv_cache(self, eval_batch_size=None):
+    # modified to match `reset_kv_cache()` signature in `models/hf/modeling_bd3lm.py`
+    if eval_batch_size is None:
+      eval_batch_size = self.config.loader.eval_batch_size
     for block in self.blocks:
       block.kv_cache = torch.zeros(
-        self.config.loader.eval_batch_size,
+        eval_batch_size,
         self.max_seqlen,
         self.config.model.hidden_size * 3,
         device='cuda',
@@ -738,7 +741,9 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
       mask = self.block_diff_mask
       # special cases for sampling
       if sample_mode:
-        if self.config.sampling.kv_cache:
+        # Modified to match `models/hf/modeling_bd3lm.py`
+        # Prev: if self.config.sampling.kv_cache:
+        if self.blocks[0].kv_cache is not None:
           # full cross-attention to kv cache
           mask = None
           accum_length = self.blocks[0].cache_idx + self.block_size

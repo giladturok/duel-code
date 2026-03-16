@@ -97,11 +97,14 @@ def generate_samples(config, logger, tokenizer):
   print('Generative perplexity:',
         model.metrics.gen_ppl.compute())
   print('Entropy:', model.metrics.gen_entropy.compute())
+  print('NFE:', model.metrics.gen_nfes)
+  print('MAUVE Score:', model.metrics.mauve_score_mean.compute())
   csv_path = config.sampling.logdir
   save_dict = {'gen_ppl': model.metrics.gen_ppls,
                 'gen_nfes': model.metrics.gen_nfes,
                 'gen_entropy': model.metrics.gen_entropies,
                 'gen_lengths': model.metrics.gen_lengths,
+                'mauve_score': [model.metrics.mauve_scores[-1] for _ in range(len(text_samples))],
                 'samples': [[i] for i in text_samples],
                 'seed': [config.seed for _ in range(len(text_samples))]}
   if config.sampling.var_length:

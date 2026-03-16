@@ -380,6 +380,14 @@ def get_dataset(
       revision=revision,
       streaming=False,
       trust_remote_code=True)
+  elif dataset_name == 'openwebtext-valid-1k':
+    dataset = datasets.load_dataset(
+      'openwebtext',
+      split='train[-1000:]',
+      cache_dir=cache_dir,
+      revision=revision,
+      streaming=False,
+      trust_remote_code=True)
   elif dataset_name == 'scientific_papers_arxiv':
     dataset = datasets.load_dataset(
       'scientific_papers', 'arxiv',
@@ -409,7 +417,7 @@ def get_dataset(
       revision=revision)
 
   if dataset_name in ['lambada', 'openwebtext-train',
-                      'openwebtext-valid']:
+                      'openwebtext-valid', 'openwebtext-valid-1k']:
     data = dataset
   else:
     data = dataset[mode]

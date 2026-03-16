@@ -8,6 +8,7 @@ import os
 import torch.nn.functional as F
 from tqdm import tqdm
 import math
+import mauve
 
 LOG2 = torch.log(torch.tensor(2.0))
 
@@ -55,6 +56,8 @@ class Metrics:
     self.gen_entropy = NLL()
     self.gen_ppls, self.gen_nfes, self.gen_entropies, self.gen_lengths \
       = [], [], [], []
+    self.mauve_scores = []
+    self.mauve_score_mean = torchmetrics.aggregation.MeanMetric()
 
     self.sampling_eps = config.training.sampling_eps
     if getattr(config.algo, 'clip_search_delta', None):
@@ -95,6 +98,7 @@ class Metrics:
     self.gen_ppl = self.gen_ppl.to(*args, **kwargs)
     self.nfes = self.nfes.to(*args, **kwargs)
     self.gen_entropy = self.gen_entropy.to(*args, **kwargs)
+    self.mauve_score_mean = self.mauve_score_mean.to(*args, **kwargs)
     
     # Add exact_valid_nlls if it exists
     if self.exact_eval_enabled:
@@ -112,6 +116,8 @@ class Metrics:
       self.init_valid_vars()
     if self.exact_eval_enabled:
       self.exact_valid_nlls.reset()
+    self.mauve_scores = []
+    self.mauve_score_mean.reset()
 
   @torch.no_grad()
   def _eval_retokenize(self, text_samples, max_length,
@@ -239,3 +245,60 @@ class Metrics:
 
       # record sample length
       self.gen_lengths.append(valid_tokens_accum.sum().detach().cpu().item())
+      
+  @torch.no_grad()
+  def record_mauve_score(
+      self,
+      generated_text: typing.List[str],
+      reference_text: typing.List[str],
+      prompts: typing.Optional[typing.List[str]] = None,
+      max_text_length: int = 256,
+      device_id: int = 0,
+      featurize_model_name: str = "gpt2-large",
+      verbose: bool = False,
+  ) -> float:
+      """Compute MAUVE score between generated and reference text distributions.
+      
+      Args:
+          generated_text: List of generated samples (continuations or full text).
+          reference_text: List of reference/gold samples (same length as generated_text).
+          prompts: Optional list of prompts. If provided, prepends to both generated 
+                  and reference text. Length must match generated_text.
+          max_text_length: Max tokens for MAUVE computation (truncates longer seqs).
+          device_id: GPU device for MAUVE featurization.
+          featurize_model_name: Model for computing embeddings (default: gpt2-large).
+          verbose: Print MAUVE internals.
+      
+      Returns:
+          mauve_score: float in [0, 1], higher = better distributional match.
+      """
+      
+      assert len(generated_text) == len(reference_text), \
+          f"Length mismatch: {len(generated_text)} generated vs {len(reference_text)} reference"
+      
+      # Prepend prompts if provided
+      if prompts is not None:
+          assert len(prompts) == len(generated_text), \
+              f"Length mismatch: {len(prompts)} prompts vs {len(generated_text)} generated"
+          machine_text = [f"{p}{g}" for p, g in zip(prompts, generated_text)]
+          human_text = [f"{p}{r}" for p, r in zip(prompts, reference_text)]
+      else:
+          machine_text = generated_text
+          human_text = reference_text
+      
+      # Compute MAUVE
+      # P = human (reference), Q = machine (generated)
+      out = mauve.compute_mauve(
+          p_text=human_text,
+          q_text=machine_text,
+          device_id=device_id,
+          max_text_length=max_text_length,
+          featurize_model_name=featurize_model_name,
+          verbose=verbose,
+      )
+      
+      score = out.mauve
+      self.mauve_scores.append(score)
+      self.mauve_score_mean.update(torch.tensor(score), 1)
+      
+      return score
