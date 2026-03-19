@@ -17,17 +17,6 @@ torch._C._jit_override_can_fuse_on_cpu(True)
 torch._C._jit_override_can_fuse_on_gpu(True)
 
 
-class Cache:
-  def __init__(
-    self,
-  ):
-    pass
-
-  def update(
-    self,
-  ):
-    pass
-
 
 def bias_dropout_add_scale(
   x: torch.Tensor,
@@ -202,57 +191,6 @@ class DDiTBlock(nn.Module):
       return bias_dropout_add_scale_fused_inference
 
   def forward(self, x, rotary_cos_sin, c, seqlens=None):
-    batch_size, seq_len = x.shape[0], x.shape[1]
-
-    bias_dropout_scale_fn = self._get_bias_dropout_scale()
-
-    # attention operation
-    x_skip = x
-    x = self.norm1(x)
-
-    qkv = self.attn_qkv(x)
-    qkv = rearrange(
-      qkv,
-      'b s (three h d) -> b s three h d',
-      three=3,
-      h=self.n_heads,
-    )
-    with torch.cuda.amp.autocast(enabled=False):
-      cos, sin = rotary_cos_sin
-      qkv = apply_rotary_pos_emb(
-        qkv, cos.to(qkv.dtype), sin.to(qkv.dtype)
-      )
-    qkv = rearrange(qkv, 'b s ... -> (b s) ...')
-    if seqlens is None:
-      cu_seqlens = torch.arange(
-        0,
-        (batch_size + 1) * seq_len,
-        step=seq_len,
-        dtype=torch.int32,
-        device=qkv.device,
-      )
-    else:
-      cu_seqlens = seqlens.cumsum(-1)
-    x = flash_attn.flash_attn_interface.flash_attn_varlen_qkvpacked_func(
-      qkv, cu_seqlens, seq_len, 0.0, causal=self.causal
-    )
-
-    x = rearrange(x, '(b s) h d -> b s (h d)', b=batch_size)
-
-    scale = torch.ones(1, device=x.device, dtype=x.dtype)
-    x = bias_dropout_scale_fn(
-      self.attn_out(x), None, scale, x_skip, self.dropout
-    )
-
-    # mlp operation
-    x = bias_dropout_scale_fn(
-      self.mlp(self.norm2(x)), None, scale, x, self.dropout
-    )
-    return x
-
-  def forward(
-    self, x, rotary_cos_sin, c, seqlens=None, kvcache=None
-  ):
     batch_size, seq_len = x.shape[0], x.shape[1]
 
     bias_dropout_scale_fn = self._get_bias_dropout_scale()

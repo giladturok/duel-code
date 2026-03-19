@@ -15,7 +15,7 @@
 
 SEED=$1
 
-srun python -u -m main \
+python -u -m main \
     mode=sample_eval \
     loader.eval_batch_size=1 \
     data=openwebtext-split \
@@ -23,7 +23,7 @@ srun python -u -m main \
     algo.T=1000 \
     model.length=1024 \
     eval.checkpoint_path=/share/kuleshov/ma2238/textdiffusion/checkpoints/mari-owt-sedd-noeos-v4/last.ckpt \
-    wandb=null \
+    wandb.project=duel +wandb.name=genppl-sedd \
     seed=$SEED \
     sampling.num_sample_batches=25 \
     sampling.logdir=$PWD/sample_logs/samples_sedd_len1024 \

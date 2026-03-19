@@ -8,7 +8,7 @@ defaults:
   - /lr_scheduler: constant_warmup
   - /algo: bd3lm
 
-mode: train  # train / ppl_eval / sample_eval / exact_ppl
+mode: train  # train / elbo_ppl / sample_eval / duel_ppl
 diffusion: absorbing_state
 
 seed: 1

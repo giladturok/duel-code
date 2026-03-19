@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -J genppl_bd3lm                # Job name
+#SBATCH -J ppl_owt_sedd                # Job name
 #SBATCH -o watch_folder/%x_%j.out     # log file (out & err)
 #SBATCH -e watch_folder/%x_%j.err     # log file (out & err)
 #SBATCH -N 1                          # Total number of nodes requested
@@ -13,25 +13,13 @@
 #SBATCH --open-mode=append            # Do not overwrite logs
 #SBATCH --requeue                     # Requeue upon preemption
 
-LENGTH=$1024
-SEED=$2
-BLOCK_SIZE=$4
-
-python -u main.py \
-    loader.eval_batch_size=1 \
+srun python -u main.py \
+    loader.eval_batch_size=16 \
     model=small \
-    algo=bd3lm \
-    algo.T=5000 \
-    algo.backbone=hf_dit \
+    algo=sedd \
+    algo.ignore_bos=false \
     data=openwebtext-split \
-    model.length=$LENGTH \
-    block_size=$BLOCK_SIZE \
-    wandb.project=duel +wandb.name=genppl-bd3lm \
-    mode=sample_eval \
-    eval.checkpoint_path=kuleshov-group/bd3lm-owt-block_size${BLOCK_SIZE} \
-    model.attn_backend=sdpa \
-    seed=$SEED \
-    sampling.num_sample_batches=25 \
-    sampling.nucleus_p=0.9 \
-    sampling.kv_cache=true \
-    sampling.logdir=$PWD/sample_logs/samples_bd3lm_len${LENGTH}_blocksize${BLOCK_SIZE}
+    model.length=1024 \
+    eval.checkpoint_path=/share/kuleshov/ssahoo/textdiffusion/text-diffusion-exp-v4-nBm2gE-small-param-sedd_data-openwebtext-split_seqlen-1024_maxs-1300001_bs-512/checkpoints/last.ckpt \
+    wandb.project=duel +wandb.name=elbo-owt_sedd \
+    mode=elbo_ppl > $PWD/logs/sedd_owt.log

@@ -1,4 +1,5 @@
 import itertools
+import logging
 from collections import OrderedDict
 from dataclasses import dataclass
 
@@ -122,7 +123,7 @@ class Diffusion(L.LightningModule):
       self.register_buffer('sampling_eps_max', torch.tensor(
         self.config.training.sampling_eps_max))
       
-    self.exact_eval_enabled = (self.config.mode == 'exact_ppl')
+    self.exact_eval_enabled = (self.config.mode == 'duel_ppl')
     self.exact_ll_use_kv_cache = False
     if self.exact_eval_enabled:
       self.exact_ll_strategy_name = getattr(
@@ -379,7 +380,7 @@ class Diffusion(L.LightningModule):
     return checkpoint
 
   def on_load_checkpoint(self, checkpoint):
-    print('Loading checkpoint at', checkpoint['global_step'])
+    logging.getLogger(__name__).info(f'Loading checkpoint at step {checkpoint["global_step"]}')
     self._restarting_skip_val_flag = True
 
     # for models compiled with `torch.compile`
@@ -533,8 +534,7 @@ class Diffusion(L.LightningModule):
     
     Nit: It is not clearly documented when we return logits vs log probabilities.
     """
-    if sigma.any() is not None:
-      sigma = self._process_sigma(sigma)
+    sigma = self._process_sigma(sigma)
     with torch.amp.autocast('cuda', dtype=torch.float32):
       if self.config.algo.name == 'bd3lm':
         logits = self.backbone(x, sigma,
@@ -689,7 +689,9 @@ class Diffusion(L.LightningModule):
                             sampling_eps_max=1)
     
     self.metrics.valid_nlls.update(losses.nlls, losses.token_mask)
-    batch_nll = losses.nlls.mean()
+
+    # Per-step PPL weighted by actual tokens (excludes padding)
+    batch_nll = losses.nlls.sum() / losses.token_mask.sum()
     batch_ppl = torch.exp(batch_nll)
     self.log(
         'val/ppl_step',
@@ -699,6 +701,7 @@ class Diffusion(L.LightningModule):
         prog_bar=True,
         sync_dist=True
     )
+
     return losses.loss
 
 
@@ -730,8 +733,9 @@ class Diffusion(L.LightningModule):
         exact_results['answer_lens']
     )
     
-    # Log current batch perplexity
-    batch_nll = exact_results['nll_per_token'].mean()
+    # Log current batch perplexity (weighted by sequence length)
+    answer_lens = exact_results['answer_lens']
+    batch_nll = (exact_results['nll_per_token'] * answer_lens).sum() / answer_lens.sum()
     batch_ppl = torch.exp(batch_nll)
     self.log(
         'val/exact_ppl_step',
@@ -1415,7 +1419,6 @@ class Diffusion(L.LightningModule):
       x_input = torch.cat((xt, x0), dim=-1)
 
     model_output = self.forward(x_input, sigma=sigma)
-    utils.print_nans(model_output, 'model_output')
 
     if self.parameterization == 'sedd':
       return dsigma * self._score_entropy(

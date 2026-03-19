@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -J genppl_ar                # Job name
+#SBATCH -J ppl_lm1b_ar                # Job name
 #SBATCH -o watch_folder/%x_%j.out     # log file (out & err)
 #SBATCH -e watch_folder/%x_%j.err     # log file (out & err)
 #SBATCH -N 1                          # Total number of nodes requested
@@ -8,25 +8,19 @@
 #SBATCH -t 960:00:00                  # Time limit (hh:mm:ss)
 #SBATCH --partition=gpu          # Request partition
 #SBATCH --constraint="[a5000|a6000|3090|a100]"
-#SBATCH --ntasks-per-node=1
-#SBATCH --gres=gpu:1                  # Type/number of GPUs needed
+#SBATCH --ntasks-per-node=4
+#SBATCH --gres=gpu:4                  # Type/number of GPUs needed
 #SBATCH --open-mode=append            # Do not overwrite logs
 #SBATCH --requeue                     # Requeue upon preemption
 
-LENGTH=$1
-SEED=$2
-
-# use model trained w/o eos for variable-length generation
-python -u -m main \
-    mode=sample_eval \
-    loader.eval_batch_size=1 \
-    data=openwebtext-split \
+srun python -u main.py \
+    loader.global_batch_size=512 \
+    loader.eval_global_batch_size=512 \
+    loader.batch_size=128 \
+    loader.eval_batch_size=128 \
     algo=ar \
-    model.length=$LENGTH \
-    eval.checkpoint_path=$PWD/ar_owt_noeos.ckpt \
-    wandb.project=duel +wandb.name=genppl-ar \
-    seed=$SEED \
-    sampling.num_sample_batches=25 \
-    sampling.nucleus_p=0.9 \
-    sampling.logdir=$PWD/sample_logs/samples_ar_len${LENGTH} \
-    sampling.kv_cache=true
+    data=lm1b-wrap \
+    model.length=128 \
+    eval.checkpoint_path=/share/kuleshov/ma2238/textdiffusion/runs/lm1b_wrap_ar/checkpoints/last.ckpt \
+    wandb.project=duel +wandb.name=elbo-lm1b_ar \
+    mode=elbo_ppl > $PWD/logs/ar_lm1b_wrap.log

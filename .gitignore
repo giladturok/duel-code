@@ -174,5 +174,9 @@ scripts_internal/
 diffusion_internal.py
 misc_internal/
 sample_logs/
+sample_logs_old/
 varlen_sample_logs/
 logs/
+checkpoints/
+data/
+*.ckpt

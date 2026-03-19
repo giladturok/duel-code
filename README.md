@@ -1,143 +1,118 @@
-# [Block Diffusion: Interpolating Between Autoregressive and Diffusion Language Models](https://arxiv.org/abs/2503.09573) (ICLR 2025 Oral)
-By [Marianne Arriola](https://m-arriola.com/), [Aaron Gokaslan](https://skylion007.github.io), [Justin T Chiu](https://justinchiu.netlify.app), [Zhihan Yang](https://zhihanyang2022.github.io/), [Zhixuan Qi](https://zhixuanqi.com/), [Jiaqi Han](https://hanjq17.github.io/), [Subham Sekhar Sahoo](https://s-sahoo.github.io), [Volodymyr Kuleshov](https://www.cs.cornell.edu/~kuleshov/)
+# [DUEL: Exact Likelihood for Masked Diffusion via Deterministic Unmasking](https://arxiv.org/abs/2603.01367)
 
-<!-- [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/18nC6q7dWq154fI1BXPLwmtnS7Zvbrv6p?usp=sharing/) -->
-[![deploy](https://img.shields.io/badge/Paper_📃-green)](https://openreview.net/forum?id=tyEyYT267x)
-[![deploy](https://img.shields.io/badge/Blog_📝%20%20-8A2BE2)](https://m-arriola.com/bd3lms/)
-[![deploy](https://img.shields.io/badge/HuggingFace_🤗%20-BD3LMs%20-orange)](https://huggingface.co/collections/kuleshov-group/bd3-lms-67be95f81b96b15fec50d53f)
+By [Gilad Turok](https://giladturok.github.io), [Chris De Sa](https://www.cs.cornell.edu/~cdesa/), [Volodymyr Kuleshov](https://www.cs.cornell.edu/~kuleshov/)
 
-![graphical_abstract](graphical_abstract.png) 
+[![Paper](https://img.shields.io/badge/Paper-PDF-green)](https://arxiv.org/pdf/2603.01367)
+[![arXiv](https://img.shields.io/badge/arXiv-2603.01367-b31b1b)](https://arxiv.org/abs/2603.01367)
+[![Website](https://img.shields.io/badge/Project-Website-blue)](https://giladturok.github.io/duel/)
 
-We introduce ***BD3-LMs***, a family of **B**lock **D**iscrete **D**enoising **D**iffusion **L**anguage **M**odels that achieve SOTA likelihoods among diffusion models and enable generation of arbitrary-length sequences. BD3-LMs combine the strengths of autoregressive and diffusion language models by decomposing a token sequence into blocks and performing discrete diffusion within each block. By tuning the block size, we interpolate between autoregressive and diffusion models which introduces a trade-off between quality and sample efficiency. We propose a recipe for building effective BD3-LMs that includes an efficient training algorithm, estimators of gradient variance, and data-driven noise schedules to minimize the variance.
+<p align="center">
+  <img src="mdm_generation_step.png" width="700">
+</p>
 
-<!-- We provide a demo in this [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/18nC6q7dWq154fI1BXPLwmtnS7Zvbrv6p?usp=sharing/) notebook. -->
+We introduce **DUEL** ⚔️ (**D**eterministic **U**nmasking **E**xact **L**ikelihood), a framework for computing exact log-likelihoods under the test-time distribution of masked diffusion models (MDMs). By pairing a pretrained denoiser with a deterministic unmasking policy, DUEL collapses the super-exponentially large sum over unmasking orders to a single term, enabling exact (not bound) likelihood evaluation.
 
+Key findings:
+- DUEL narrows the MDM-to-autoregressive perplexity gap by up to 32% on in-domain data and 82% on zero-shot benchmarks
+- Probability margin is the best-performing unmasking strategy under fixed compute budgets
+- MDMs can even surpass autoregressive models with oracle unmasking orderings
 
-In this repo, we provide:
-* **The BD3-LM framework**
-  1. Block-autoregressive likelihood parameterization
-  2. Data-driven noise schedules to reduce training variance
-  3. Arbitrary-length discrete diffusion samplers
-* **Baseline implementations**
-  1. Autoregressive model [[AR](https://arxiv.org/abs/2406.07524)]
-  2. Score Entropy Based Discrete Diffusion [[SEDD](https://arxiv.org/abs/2310.16834)]
-  3. Masked Diffusion Language Model [[MDLM](https://arxiv.org/abs/2406.07524)]
-  4. Semi-autoregressive Simplex-based Diffusion Language Model [[SSD-LM](https://arxiv.org/pdf/2210.17432)] *(supports sample generation only)*
+This codebase builds on the [BD3-LM](https://github.com/kuleshov-group/bd3lms) framework.
 
-<a name="code-organization"></a>
 ## Code Organization
-1. ```main.py```: Routines for training and evaluation
-2. ```noise_schedule.py```: Noise schedules
-3. ```diffusion.py```: Forward/reverse diffusion
-4. ```dataloader.py```: Dataloaders
-5. ```utils.py```: LR scheduler, logging, `fsspec` handling
-6. ```models/```: Network architectures. Supports [DiT](https://arxiv.org/abs/2212.09748) and AR transformer
-7. ```configs/```: Config files for datasets/models/noise schedules/LR schedules
-8. ```scripts/```: Shell scripts for training/evaluation
-    - ``train/``: Training scripts (LM1B, OWT)
-    - ``ppl/``: Likelihood evaluation on the pretraining set (LM1B, OWT)
-    - ``zs_ppl/``: Zero-shot likelihood evaluation on GPT2 benchmark datasets
-    - ``gen_ppl/``: Sample quality (generative perplexity under GPT2)
-    - ``var_len/``: Arbitrary-length sequence generation
-9. ```ssd-lm/```: SSD-LM codebase
-    - ```run_generate_text_batch.sh```: Generates SSD-LM samples
-    - ```report_genppl.py```: Reports generative perplexity of SSD-LM samples
 
+| File | Description |
+|------|-------------|
+| `main.py` | Entry point for all experiments |
+| `diffusion.py` | Forward/reverse diffusion, training, sampling |
+| `exact_likelihood.py` | DUEL exact log-likelihood computation |
+| `selection_strategies.py` | Deterministic unmasking policies (greedy, L2R, prob. margin, conf. threshold) |
+| `dataloader.py` | Data loading utilities |
+| `metrics.py` | Evaluation metrics (PPL, BPD, gen. PPL, MAUVE) |
+| `noise_schedule.py` | Noise schedules |
+| `models/` | Network architectures (DiT, AR transformer) |
+| `configs/` | Hydra configuration files |
+| `scripts/` | Shell scripts for all experiments |
 
-<a name="getting_started"></a>
+### Scripts Directory
+
+| Directory | Experiment |
+|-----------|------------|
+| `scripts/duel_ppl/` | In-domain exact likelihood (DUEL) |
+| `scripts/elbo_ppl/` | In-domain ELBO likelihood |
+| `scripts/duel_zs_ppl/` | Zero-shot exact likelihood (DUEL) |
+| `scripts/elbo_zs_ppl/` | Zero-shot ELBO likelihood |
+| `scripts/sampler_duel_ppl/` | Sampler comparison via exact PPL |
+| `scripts/sampler_gen_ppl/` | Sampler comparison via generative PPL |
+| `scripts/gen_ppl/` | Generative perplexity evaluation |
 
 ## Getting Started
 
-To get started, create a conda environment containing the required dependencies.
+### Installation
 
 ```bash
-conda create --name bd3lm python=3.9
-conda activate bd3lm
+conda env create -f environment.yml
+conda activate duel
 pip install -r requirements.txt
 ```
-While BD3-LMs don't require FlashAttention, evaluating baselines from MDLM require `flash-attn==2.5.6`
 
-Create the following directories to store saved models and slurm logs:
+BD3-LMs and AR models don't require FlashAttention, but MDLM and SEDD baselines do. To install:
 ```bash
-mkdir outputs watch_folder logs sample_logs
+pip install flash-attn==2.5.6 --no-build-isolation
 ```
-and run the training as a batch job:
+This requires CUDA toolkit and a compatible GPU (Ampere or newer). If installation fails, see the [flash-attn repo](https://github.com/Dao-AILab/flash-attention) for troubleshooting.
+
+Create output directories:
+
 ```bash
-sbatch scripts/train/train_owt_bd3lm.sh
+mkdir -p outputs watch_folder logs sample_logs
 ```
+- `outputs/` — Hydra run directories (configs, checkpoints)
+- `watch_folder/` — SLURM stdout/stderr logs
+- `logs/` — script output logs
+- `sample_logs/` — generated text samples
 
-### Checkpoints
+### Configuration
 
-We have uploaded BD3-LMs trained on OpenWebText using block sizes 4, 8, 16 for 1M training steps to HuggingFace 🤗:
-[kuleshov-group/bd3-lms](https://huggingface.co/collections/kuleshov-group/bd3-lms-67be95f81b96b15fec50d53f) BD3-LMs are finetuned from an MDLM checkpoint trained on OpenWebText for 850K gradient updates. We release the pretraining checkpoint on HuggingFace: [kuleshov-group/bd3lm-owt-block_size1024-pretrain](https://huggingface.co/kuleshov-group/bd3lm-owt-block_size1024-pretrain)
+**Data paths:** Dataset cache directories are configured in `configs/data/*.yaml` via the `cache_dir` field. Update these to point to your local data directory.
 
+**Checkpoint paths:** Some scripts reference local checkpoint paths (e.g., `/share/kuleshov/...`). For OWT models, HuggingFace model IDs are used and checkpoints download automatically. For LM1B models, update the `eval.checkpoint_path` in the relevant scripts to point to your local checkpoint files.
 
-The MDLM baseline is also found on the HuggingFace:
-[kuleshov-group/mdlm-owt](https://huggingface.co/kuleshov-group/mdlm-owt). The AR and SEDD baselines trained on OpenWebText in this [Google Drive folder](https://drive.google.com/drive/folders/16LuuptK7Xfk-vzhQYZBZ0SA-B-BFluau?usp=sharing).
+## Checkpoints
 
-For arbitrary-length sequence generation, we compare with AR, SEDD, and MDLM (supported as an inference-only technique and does not feature a training objective), and SSD-LM. In order to generate sequences longer than the training context size (fixed at 1024 tokens for OWT), we retrained AR and MDLM from Sahoo et. al without artificially injecting BOS/EOS tokens in the context. We also provide these checkpoints on HuggingFace: [kuleshov-group/mdlm-noeos-owt](https://huggingface.co/kuleshov-group/mdlm-noeos-owt), [kuleshov-group/sedd-noeos-owt](https://huggingface.co/kuleshov-group/sedd-noeos-owt), [kuleshov-group/ar-noeos-owt](https://huggingface.co/kuleshov-group/ar-noeos-owt).
+### OpenWebText (auto-downloaded from HuggingFace)
+
+| Model | HuggingFace ID |
+|-------|---------------|
+| BD3-LM (L'=4) | `kuleshov-group/bd3lm-owt-block_size4` |
+| BD3-LM (L'=8) | `kuleshov-group/bd3lm-owt-block_size8` |
+| BD3-LM (L'=16) | `kuleshov-group/bd3lm-owt-block_size16` |
+| MDLM | `kuleshov-group/mdlm-owt` |
+| AR | [Google Drive](https://drive.google.com/drive/folders/16LuuptK7Xfk-vzhQYZBZ0SA-B-BFluau?usp=sharing) |
+| SEDD | [Google Drive](https://drive.google.com/drive/folders/16LuuptK7Xfk-vzhQYZBZ0SA-B-BFluau?usp=sharing) |
+
+### LM1B (download manually)
+
+LM1B checkpoints for BD3-LM, MDLM, SEDD, and AR are available via Google Drive. Download and update the checkpoint paths in the relevant scripts under `scripts/duel_ppl/` and `scripts/elbo_ppl/`.
 
 ## Reproducing Experiments
 
-Below, we describe the steps required for reproducing the experiments in the paper.
-Throughout, the main entry point for running experiments is the [`main.py`](./main.py) script.
-We also provide sample `slurm` scripts for launching pre-training and downstream fine-tuning experiments in the [`scripts/`](./scripts) directory.
+The main entry point is `main.py` with three evaluation modes:
+- `mode=duel_ppl` — DUEL exact log-likelihood
+- `mode=elbo_ppl` — ELBO-based perplexity
+- `mode=sample_eval` — Generative sampling + metrics
 
-
-### Generate Arbitrary-Length Sequences
-
-To generate arbitrary-length sequences, set `mode=sample_eval`. Example scripts are provided in `scripts/var_len/var_len*.sh`. Here's an example script using BD3-LM:
-#### HuggingFace model
+To run **all experiments** across all tables (including all block sizes and sampler configurations):
 ```bash
-BLOCK_SIZE=4 # 4, 8, 16
-LENGTH=2048 # arbitrary; needs to be a multiple of the block size
-
-python -u main.py \
-    loader.eval_batch_size=1 \
-    model=small \
-    algo=bd3lm \
-    algo.T=5000 \
-    algo.backbone=hf_dit \
-    data=openwebtext-split \
-    model.length=$LENGTH \
-    block_size=$BLOCK_SIZE \
-    wandb=null \
-    mode=sample_eval \
-    eval.checkpoint_path=kuleshov-group/bd3lm-owt-block_size${BLOCK_SIZE} \
-    model.attn_backend=sdpa \
-    sampling.nucleus_p=0.9 \
-    sampling.kv_cache=true \
-    sampling.logdir=$PWD/sample_logs/samples_genlen_bd3lm_blocksize${BLOCK_SIZE}
+bash scripts/run_all.sh
 ```
 
-#### Local checkpoint
+Individual scripts are designed for SLURM but can be run directly with `python`. For example, to run a script without SLURM:
+
 ```bash
-BLOCK_SIZE=4 # 4, 8, 16
-LENGTH=2048 # arbitrary; needs to be a multiple of the block size
-
-python -u main.py \
-    loader.eval_batch_size=1 \
-    model=small \
-    algo=bd3lm \
-    algo.T=5000 \
-    data=openwebtext-split \
-    model.length=$LENGTH \
-    block_size=$BLOCK_SIZE \
-    wandb=null \
-    mode=sample_eval \
-    eval.checkpoint_path=/path/to/checkpoint/bd3lm-owt-block_size${BLOCK_SIZE} \
-    model.attn_backend=sdpa \
-    sampling.nucleus_p=0.9 \
-    sampling.kv_cache=true \
-    sampling.logdir=$PWD/sample_logs/samples_genlen_bd3lm_blocksize${BLOCK_SIZE}
-```
-
-### Likelihood Evaluation 
-To compute test perplexity, use `mode=ppl_eval`. Example scripts are provided in `scripts/ppl/eval_owt_*.sh`. Here's an example evaluation script on OpenWebText:
-```bash
-BLOCK_SIZE=4 # 4, 8, 16
-
-python -u main.py \
+# Instead of: sbatch scripts/elbo_ppl/ppl_owt_bd3lm.sh
+# Run directly:
+BLOCK_SIZE=4 python -u main.py \
     loader.eval_batch_size=16 \
     model=small \
     algo=bd3lm \
@@ -148,46 +123,92 @@ python -u main.py \
     model.attn_backend=flex \
     block_size=${BLOCK_SIZE} \
     eval.checkpoint_path=kuleshov-group/bd3lm-owt-block_size${BLOCK_SIZE} \
-    wandb=null \
-    mode=ppl_eval > logs/bd3lm_owt_block_size${BLOCK_SIZE}.log
+    wandb.project=duel \
+    +wandb.name=elbo-owt-bd3lm \
+    mode=elbo_ppl
 ```
 
-### Training Pipeline
-To train BD3-LMs, use `mode=train` (default mode). Example scripts are provided in `scripts/train/train_owt*.sh`. Here's an example training script on OpenWebText:
+**Adjusting batch size:** Change `loader.eval_batch_size` to fit your GPU memory (e.g., `loader.eval_batch_size=8` for smaller GPUs).
+
+**Weights & Biases logging:** All scripts log to W&B project `duel` by default. To disable W&B, replace the `wandb.project=...` and `wandb.name=...` lines with `wandb=null`.
+
+### Table 1: In-Domain Perplexity (OWT)
+
+**ELBO perplexity:**
 ```bash
-BLOCK_SIZE=4 # we recommend 4, 8, or 16. must be a factor of the context length
-PRETRAIN_CKPT=kuleshov-group/bd3lm-owt-block_size1024-pretrain # to train from scratch, set to null
+# BD3-LM (set BLOCK_SIZE=4, 8, or 16 inside the script)
+bash scripts/elbo_ppl/ppl_owt_bd3lm.sh
 
-python -u main.py \
-    loader.global_batch_size=512 \
-    loader.eval_global_batch_size=512 \
-    loader.batch_size=16 \
-    loader.eval_batch_size=16 \
-    model=small \
-    algo=bd3lm \
-    algo.clip_search_widths=[0.5,0.6,0.7,0.8,0.9] \
-    data=openwebtext-split \
-    model.length=1024 \
-    block_size=$BLOCK_SIZE \
-    wandb.name=bd3lm-owt-block_size${BLOCK_SIZE} \
-    mode=train \
-    model.attn_backend=flex \
-    training.resample=True \
-    training.from_pretrained=$PRETRAIN_CKPT
+# MDLM, SEDD, AR
+bash scripts/elbo_ppl/ppl_owt_mdlm.sh
+bash scripts/elbo_ppl/ppl_owt_sedd.sh
+bash scripts/elbo_ppl/ppl_owt_ar.sh
 ```
-The arguments `loader.batch_size` and `loader.eval_batch_size` allow you to control the batch size per GPU. If `loader.batch_size * num_gpus` is less than the global_batch_size, PyTorch Lightning will resort to gradient accumulation. You can also launch a training job on Slurm using the command: `sbatch scripts/train/train_owt_bd3lm.sh`.
+
+**DUEL exact perplexity:**
+```bash
+# BD3-LM (set BLOCK_SIZE=4, 8, or 16 inside the script)
+bash scripts/duel_ppl/bd3lm_owt.sh
+
+# MDLM, SEDD
+bash scripts/duel_ppl/mdlm_owt.sh
+bash scripts/duel_ppl/sedd_owt.sh
+```
+
+### Table 2: In-Domain Perplexity (LM1B)
+
+Same structure as OWT. Scripts are in `scripts/elbo_ppl/ppl_lm1b_*.sh` and `scripts/duel_ppl/*_lm1b.sh`. **Note:** LM1B scripts require local checkpoint paths — update `eval.checkpoint_path` before running.
+
+### Table 3: Zero-Shot Perplexity
+
+**ELBO:**
+```bash
+bash scripts/elbo_zs_ppl/ppl_zs_owt_bd3lm.sh  # BD3-LM
+bash scripts/elbo_zs_ppl/ppl_zs_owt_mdlm.sh   # MDLM
+bash scripts/elbo_zs_ppl/ppl_zs_owt_sedd.sh   # SEDD
+bash scripts/elbo_zs_ppl/ppl_zs_owt_ar.sh     # AR
+```
+
+**DUEL exact:**
+```bash
+bash scripts/duel_zs_ppl/owt_bd3lm_block_greedy.sh  # BD3-LM
+bash scripts/duel_zs_ppl/owt_mdlm_block_greedy.sh   # MDLM
+bash scripts/duel_zs_ppl/owt_sedd_block_greedy.sh   # SEDD
+```
+
+These evaluate on: AG News, LAMBADA, PTB, WikiText-2, WikiText-103, PubMed, ArXiv, LM1B.
+
+### Table 4: Sampler Comparison (BD3-LM L'=16, OWT)
+
+**Exact perplexity under different unmasking strategies:**
+```bash
+bash scripts/sampler_duel_ppl/block_greedy.sh              # Greedy confidence
+bash scripts/sampler_duel_ppl/block_left_to_right.sh       # Left-to-right
+bash scripts/sampler_duel_ppl/block_probability_margin.sh  # Probability margin
+bash scripts/sampler_duel_ppl/block_conf_thresh.sh         # Confidence threshold
+bash scripts/sampler_duel_ppl/elbo.sh                      # ELBO baseline
+```
+
+**Generative perplexity under different unmasking strategies:**
+```bash
+bash scripts/sampler_gen_ppl/block_greedy.sh              # Greedy confidence
+bash scripts/sampler_gen_ppl/block_left_to_right.sh       # Left-to-right
+bash scripts/sampler_gen_ppl/block_probability_margin.sh  # Probability margin
+bash scripts/sampler_gen_ppl/block_confidence_threshold.sh # Confidence threshold
+bash scripts/sampler_gen_ppl/uniform.sh                   # Uniform baseline
+```
 
 ### Acknowledgements
-This repository was built off of [MDLM](https://github.com/kuleshov-group/mdlm) and [SEDD](https://github.com/louaaron/Score-Entropy-Discrete-Diffusion).
+
+This repository was built off of [BD3-LMs](https://github.com/kuleshov-group/bd3lms), [MDLM](https://github.com/kuleshov-group/mdlm), and [SEDD](https://github.com/louaaron/Score-Entropy-Discrete-Diffusion).
 
 ## Citation
-```
-@inproceedings{
-arriola2025block,
-title={Block Diffusion: Interpolating Between Autoregressive and Diffusion Language Models},
-author={Marianne Arriola and Aaron Gokaslan and Justin T Chiu and Zhihan Yang and Zhixuan Qi and Jiaqi Han and Subham Sekhar Sahoo and Volodymyr Kuleshov},
-booktitle={The Thirteenth International Conference on Learning Representations},
-year={2025},
-url={https://arxiv.org/abs/2503.09573}
+
+```bibtex
+@article{turok2026duel,
+  title={DUEL: Exact Likelihood for Masked Diffusion via Deterministic Unmasking},
+  author={Turok, Gilad and De Sa, Chris and Kuleshov, Volodymyr},
+  journal={arXiv preprint arXiv:2603.01367},
+  year={2026}
 }
 ```

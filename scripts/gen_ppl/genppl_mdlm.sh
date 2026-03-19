@@ -17,7 +17,7 @@ LENGTH=$1
 SEED=$2
 
 # use model trained w/o eos for variable-length generation
-srun python -u -m main \
+python -u -m main \
     mode=sample_eval \
     loader.eval_batch_size=1 \
     data=openwebtext-split \
@@ -26,7 +26,7 @@ srun python -u -m main \
     block_size=1024 \
     model.length=$LENGTH \
     eval.checkpoint_path=$PWD/mdlm_owt_noeos.ckpt \
-    wandb=null \
+    wandb.project=duel +wandb.name=genppl-mdlm \
     seed=$SEED \
     sampling.num_sample_batches=25 \
     sampling.nucleus_p=0.9 \

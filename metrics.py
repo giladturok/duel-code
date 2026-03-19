@@ -45,7 +45,7 @@ class Metrics:
       self.block_size = config.block_size
     else:
       self.block_size = config.model.length
-    self.exact_eval_enabled = (config.mode == 'exact_ppl')
+    self.exact_eval_enabled = (config.mode == 'duel_ppl')
     if self.exact_eval_enabled:
       self.exact_valid_nlls = torchmetrics.aggregation.MeanMetric()
       

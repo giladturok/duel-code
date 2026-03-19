@@ -72,17 +72,15 @@ def _print_config(
 
 @L.pytorch.utilities.rank_zero_only
 def _print_batch(train_ds, valid_ds, tokenizer, k=64):
+  logger = utils.get_logger(__name__)
   for dl_type, dl in [
     ('train', train_ds), ('valid', valid_ds)]:
-    print(f'Printing {dl_type} dataloader batch.')
     batch = next(iter(dl))
-    print('Batch input_ids.shape', batch['input_ids'].shape)
+    logger.info(f'{dl_type} batch input_ids.shape: {batch["input_ids"].shape}')
     first = batch['input_ids'][0, :k]
     last = batch['input_ids'][0, -k:]
-    print(f'First {k} tokens:', tokenizer.decode(first))
-    print('ids:', first)
-    print(f'Last {k} tokens:', tokenizer.decode(last))
-    print('ids:', last)
+    logger.info(f'First {k} tokens: {tokenizer.decode(first)}')
+    logger.info(f'Last {k} tokens: {tokenizer.decode(last)}')
 
 def generate_samples(config, logger, tokenizer):
   logger.info('Generating samples.')
@@ -93,12 +91,10 @@ def generate_samples(config, logger, tokenizer):
     model.ema = None
   text_samples = model.restore_model_and_sample(
     num_steps=config.algo.T)
-  print('Text samples:', text_samples)
-  print('Generative perplexity:',
-        model.metrics.gen_ppl.compute())
-  print('Entropy:', model.metrics.gen_entropy.compute())
-  print('NFE:', model.metrics.gen_nfes)
-  print('MAUVE Score:', model.metrics.mauve_score_mean.compute())
+  logger.info(f'Generative perplexity: {model.metrics.gen_ppl.compute()}')
+  logger.info(f'Entropy: {model.metrics.gen_entropy.compute()}')
+  logger.info(f'NFE: {model.metrics.gen_nfes}')
+  logger.info(f'MAUVE Score: {model.metrics.mauve_score_mean.compute()}')
   csv_path = config.sampling.logdir
   save_dict = {'gen_ppl': model.metrics.gen_ppls,
                 'gen_nfes': model.metrics.gen_nfes,
@@ -108,7 +104,6 @@ def generate_samples(config, logger, tokenizer):
                 'samples': [[i] for i in text_samples],
                 'seed': [config.seed for _ in range(len(text_samples))]}
   if config.sampling.var_length:
-    print(text_samples)
     save_dict['samples'] = ['' for _ in range(len(text_samples))]
   utils.update_and_save_csv(save_dict, csv_path)
   return text_samples
@@ -219,7 +214,7 @@ def main(config):
   if config.mode == 'sample_eval':
     config.wandb = None
     samples = generate_samples(config, logger, tokenizer)
-  elif config.mode in {'ppl_eval', 'exact_ppl'}:
+  elif config.mode in {'elbo_ppl', 'duel_ppl'}:
     if config.get('wandb', None) is not None:
       config.wandb = dict(config.wandb)
     else:

@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -J genppl_ar                # Job name
+#SBATCH -J ppl_lm1b_bd3lm                # Job name
 #SBATCH -o watch_folder/%x_%j.out     # log file (out & err)
 #SBATCH -e watch_folder/%x_%j.err     # log file (out & err)
 #SBATCH -N 1                          # Total number of nodes requested
@@ -8,25 +8,21 @@
 #SBATCH -t 960:00:00                  # Time limit (hh:mm:ss)
 #SBATCH --partition=gpu          # Request partition
 #SBATCH --constraint="[a5000|a6000|3090|a100]"
-#SBATCH --ntasks-per-node=1
-#SBATCH --gres=gpu:1                  # Type/number of GPUs needed
+#SBATCH --ntasks-per-node=4
+#SBATCH --gres=gpu:4                  # Type/number of GPUs needed
 #SBATCH --open-mode=append            # Do not overwrite logs
 #SBATCH --requeue                     # Requeue upon preemption
 
-LENGTH=$1
-SEED=$2
+BLOCK_SIZE=4
 
-# use model trained w/o eos for variable-length generation
-python -u -m main \
-    mode=sample_eval \
-    loader.eval_batch_size=1 \
-    data=openwebtext-split \
-    algo=ar \
-    model.length=$LENGTH \
-    eval.checkpoint_path=$PWD/ar_owt_noeos.ckpt \
-    wandb.project=duel +wandb.name=genppl-ar \
-    seed=$SEED \
-    sampling.num_sample_batches=25 \
-    sampling.nucleus_p=0.9 \
-    sampling.logdir=$PWD/sample_logs/samples_ar_len${LENGTH} \
-    sampling.kv_cache=true
+srun python -u main.py \
+    loader.eval_batch_size=128 \
+    model=small \
+    algo=bd3lm \
+    data=lm1b-wrap \
+    model.length=128 \
+    block_size=${BLOCK_SIZE} \
+    eval.checkpoint_path=/share/kuleshov/ma2238/textdiffusion/checkpoints/ablation_bs${BLOCK_SIZE}_loglinear_final/last-v1.ckpt \
+    wandb.project=duel +wandb.name=elbo-lm1b_bd3lm \
+    mode=elbo_ppl \
+    model.attn_backend=flex > $PWD/logs/bd3lm_lm1b_wrap_block_size${BLOCK_SIZE}.log
