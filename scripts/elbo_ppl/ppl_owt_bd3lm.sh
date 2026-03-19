@@ -16,6 +16,7 @@
 BLOCK_SIZE=4
 
 srun python -u main.py \
+    loader.num_workers=4 \
     loader.eval_batch_size=16 \
     model=small \
     algo=bd3lm \

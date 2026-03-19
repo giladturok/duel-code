@@ -36,6 +36,7 @@ EVAL_BATCH_SIZE=128
 for data in "${datasets[@]}"; do
     echo "$data"
     srun python -u main.py \
+        loader.num_workers=4 \
         loader.eval_batch_size=${EVAL_BATCH_SIZE} \
         model=small \
         algo=bd3lm \

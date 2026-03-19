@@ -26,6 +26,7 @@ datasets=("ag_news"
 for data in "${datasets[@]}"; do
     echo "$data"
     srun python -u main.py \
+        loader.num_workers=4 \
         loader.eval_batch_size=16 \
         model=small \
         algo=mdlm \

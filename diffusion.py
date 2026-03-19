@@ -704,15 +704,14 @@ class Diffusion(L.LightningModule):
 
     # Running average PPL (averaged in NLL space, then exponentiated)
     running_ppl = self.metrics.valid_nlls['ppl'].compute()
-    if torch.isfinite(running_ppl):
-        self.log(
-            'val/ppl_running',
-            running_ppl,
-            on_step=True,
-            on_epoch=False,
-            prog_bar=False,
-            sync_dist=True
-        )
+    self.log(
+        'val/ppl_running',
+        running_ppl,
+        on_step=True,
+        on_epoch=False,
+        prog_bar=False,
+        sync_dist=True
+    )
 
     return losses.loss
 
@@ -757,25 +756,24 @@ class Diffusion(L.LightningModule):
         prog_bar=True,
         sync_dist=True
     )
-    
+
     # Log running average perplexity
     running_nll = self.metrics.exact_valid_nlls.compute()
-    if torch.isfinite(running_nll):
-        running_ppl = torch.exp(running_nll)
-        self.log(
-            'val/exact_ppl_running',
-            running_ppl,
-            on_step=True,
-            on_epoch=False,
-            prog_bar=False,
-            sync_dist=True
-        )
-        
+    running_ppl = torch.exp(running_nll)
+    self.log(
+        'val/exact_ppl_running',
+        running_ppl,
+        on_step=True,
+        on_epoch=False,
+        prog_bar=False,
+        sync_dist=True
+    )
+
     # Log number of decoding steps (if available)
     if exact_results['steps'] is not None:
         self.log(
             'val/num_decoding_steps',
-            exact_results['steps'],
+            float(exact_results['steps']),
             on_step=True,
             on_epoch=False,
             prog_bar=False,

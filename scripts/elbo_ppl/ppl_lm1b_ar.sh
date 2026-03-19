@@ -14,6 +14,7 @@
 #SBATCH --requeue                     # Requeue upon preemption
 
 srun python -u main.py \
+    loader.num_workers=4 \
     loader.global_batch_size=512 \
     loader.eval_global_batch_size=512 \
     loader.batch_size=128 \

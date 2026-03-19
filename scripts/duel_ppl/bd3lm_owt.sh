@@ -20,6 +20,7 @@ export TRITON_NUM_STAGES=1
 BLOCK_SIZE=4
 
 srun python -u main.py \
+    loader.num_workers=4 \
     loader.eval_batch_size=192 \
     model=small \
     algo=bd3lm \
