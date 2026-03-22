@@ -7,14 +7,22 @@
 #SBATCH --mem=32G                  # server memory requested (per node)
 #SBATCH -t 960:00:00                  # Time limit (hh:mm:ss)
 #SBATCH --partition=gpu          # Request partition
-#SBATCH --constraint="[a5000|a6000|3090|a100]"
-#SBATCH --ntasks-per-node=4
-#SBATCH --gres=gpu:4                  # Type/number of GPUs needed
+#SBATCH --constraint="[a5000|a6000|a100|h100]"
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=4
+#SBATCH --gres=gpu:1                  # Type/number of GPUs needed
 #SBATCH --open-mode=append            # Do not overwrite logs
 #SBATCH --requeue                     # Requeue upon preemption
 
-srun python -u main.py \
-    loader.num_workers=4 \
+# Debug/diagnostic exports
+export NCCL_DEBUG=INFO
+export PYTHONFAULTHANDLER=1
+export TORCH_NCCL_TRACE_BUFFER_SIZE=1000
+export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC=900
+export NCCL_SOCKET_IFNAME=^docker0,lo
+
+python -u main.py \
+    loader.num_workers=1 \
     loader.eval_batch_size=16 \
     model=small \
     algo=ar \

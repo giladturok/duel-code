@@ -7,9 +7,10 @@
 #SBATCH --mem=32G                   # server memory requested (per node)
 #SBATCH -t 960:00:00                # Time limit (hh:mm:ss)
 #SBATCH --partition=gpu             # Request partition
-#SBATCH --constraint="[h200]"
-#SBATCH --ntasks-per-node=4
-#SBATCH --gres=gpu:4                # Type/number of GPUs needed
+#SBATCH --constraint="[a100|h200|h100]"
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=4
+#SBATCH --gres=gpu:1                # Type/number of GPUs needed
 #SBATCH --open-mode=append          # Do not overwrite logs
 #SBATCH --requeue                   # Requeue upon preemption
 
@@ -17,11 +18,11 @@ source ~/miniconda3/etc/profile.d/conda.sh
 conda activate bd3lm
 
 export TRITON_NUM_STAGES=1
-BLOCK_SIZE=4
+BLOCK_SIZE=16
 
 srun python -u main.py \
     loader.num_workers=4 \
-    loader.eval_batch_size=192 \
+    loader.eval_batch_size=64 \
     model=small \
     algo=bd3lm \
     algo.backbone=hf_dit \

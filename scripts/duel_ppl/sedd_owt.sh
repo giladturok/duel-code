@@ -7,9 +7,10 @@
 #SBATCH --mem=32G                  # server memory requested (per node)
 #SBATCH -t 960:00:00                  # Time limit (hh:mm:ss)
 #SBATCH --partition=gpu          # Request partition
-#SBATCH --constraint="[h100|h200]"
-#SBATCH --ntasks-per-node=2
-#SBATCH --gres=gpu:2                # Type/number of GPUs needed
+#SBATCH --constraint="[a100|h100|h100|h200]"
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=4
+#SBATCH --gres=gpu:1                # Type/number of GPUs needed
 #SBATCH --open-mode=append            # Do not overwrite logs
 #SBATCH --requeue                     # Requeue upon preemption
 

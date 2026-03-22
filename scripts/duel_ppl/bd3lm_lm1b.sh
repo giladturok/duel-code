@@ -7,20 +7,29 @@
 #SBATCH --mem=32G                   # server memory requested (per node)
 #SBATCH -t 960:00:00                # Time limit (hh:mm:ss)
 #SBATCH --partition=gpu             # Request partition
-#SBATCH --constraint="[a6000]"
+#SBATCH --constraint="[a5000|a6000|a100]"
 #SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=4
 #SBATCH --gres=gpu:1                # Type/number of GPUs needed
 #SBATCH --open-mode=append          # Do not overwrite logs
 #SBATCH --requeue                   # Requeue upon preemption
+
+# Debug/diagnostic exports
+export NCCL_DEBUG=INFO
+export PYTHONFAULTHANDLER=1
+export TORCH_NCCL_TRACE_BUFFER_SIZE=1000
+export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC=900
+export NCCL_SOCKET_IFNAME=^docker0,lo
 
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate bd3lm
 
 export TRITON_NUM_STAGES=1
-BLOCK_SIZE=8
+BLOCK_SIZE=16
 
 python -u main.py \
-    loader.eval_batch_size=128 \
+    loader.num_workers=1 \
+    loader.eval_batch_size=64 \
     model=small \
     algo=bd3lm \
     data=lm1b-wrap \

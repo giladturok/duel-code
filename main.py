@@ -26,14 +26,14 @@ omegaconf.OmegaConf.register_new_resolver(
 def _load_from_checkpoint(config, tokenizer):
   if 'hf' in config.algo.backbone:
     return diffusion.Diffusion(
-      config, tokenizer=tokenizer).to('cuda')
-  
+      config, tokenizer=tokenizer)
+    
   return diffusion.Diffusion.load_from_checkpoint(
     config.eval.checkpoint_path,
     tokenizer=tokenizer,
     config=config,
     strict=False,
-    weights_only=False).to('cuda')
+    weights_only=False)
 
 @L.pytorch.utilities.rank_zero_only
 def _print_config(

@@ -11,7 +11,7 @@
 #SBATCH --constraint="[a5000|a6000|a100|h100|h200]"
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:1                 # Type/number of GPUs needed
-#SBATCH --cpus-per-task=1              # Number of CPU cores per task
+#SBATCH --cpus-per-task=4              # Number of CPU cores per task
 #SBATCH --open-mode=append            # Do not overwrite logs
 #SBATCH --requeue                     # Requeue upon pre-emption
 

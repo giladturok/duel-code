@@ -8,7 +8,7 @@
 #SBATCH -t 150:00:00                 # Time limit (hh:mm:ss)
 #SBATCH --exclude=sun-compute-03,snavely-compute-02,kuleshov-compute-02 # exclude a problematic node
 #SBATCH --partition=gpu             # Request partition
-#SBATCH --constraint="[a100|h100|h200|a6000]"
+#SBATCH --constraint="[a100|h100|h200]"
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:1                # Type/number of GPUs needed
 #SBATCH --cpus-per-task=4           # Number of CPU cores per task

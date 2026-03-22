@@ -77,8 +77,8 @@ trainer:
   val_check_interval: 10_000
 
 wandb:
-  project: BD3-LMs
-  notes: Block Denoising Discrete Diffusion Language Models
+  project: duel
+  notes: DUEL Exact Likelihood for Masked Diffusion via Deterministic Unmasking
   group: null
   job_type: null
   name: null
