@@ -17,20 +17,20 @@ echo "========================================"
 
 # ELBO
 for BS in 4 8 16; do
-    sed -i "s/^BLOCK_SIZE=.*/BLOCK_SIZE=${BS}/" scripts/elbo_ppl/ppl_owt_bd3lm.sh
-    bash scripts/elbo_ppl/ppl_owt_bd3lm.sh
+    sed -i "s/^BLOCK_SIZE=.*/BLOCK_SIZE=${BS}/" scripts/elbo/bd3lm_owt.sh
+    bash scripts/elbo/bd3lm_owt.sh
 done
-bash scripts/elbo_ppl/ppl_owt_mdlm.sh
-bash scripts/elbo_ppl/ppl_owt_sedd.sh
-bash scripts/elbo_ppl/ppl_owt_ar.sh
+bash scripts/elbo/mdlm_owt.sh
+bash scripts/elbo/sedd_owt.sh
+bash scripts/ar/elbo_owt.sh
 
 # DUEL
 for BS in 4 8 16; do
-    sed -i "s/^BLOCK_SIZE=.*/BLOCK_SIZE=${BS}/" scripts/duel_ppl/bd3lm_owt.sh
-    bash scripts/duel_ppl/bd3lm_owt.sh
+    sed -i "s/^BLOCK_SIZE=.*/BLOCK_SIZE=${BS}/" scripts/duel/bd3lm_owt.sh
+    bash scripts/duel/bd3lm_owt.sh
 done
-bash scripts/duel_ppl/mdlm_owt.sh
-bash scripts/duel_ppl/sedd_owt.sh
+bash scripts/duel/mdlm_owt.sh
+bash scripts/duel/sedd_owt.sh
 
 echo "========================================"
 echo "Table 2: In-Domain Perplexity (LM1B)"
@@ -38,53 +38,57 @@ echo "========================================"
 
 # ELBO
 for BS in 4 8 16; do
-    sed -i "s/^BLOCK_SIZE=.*/BLOCK_SIZE=${BS}/" scripts/elbo_ppl/ppl_lm1b_bd3lm.sh
-    bash scripts/elbo_ppl/ppl_lm1b_bd3lm.sh
+    sed -i "s/^BLOCK_SIZE=.*/BLOCK_SIZE=${BS}/" scripts/elbo/bd3lm_lm1b.sh
+    bash scripts/elbo/bd3lm_lm1b.sh
 done
-bash scripts/elbo_ppl/ppl_lm1b_mdlm.sh
-bash scripts/elbo_ppl/ppl_lm1b_sedd.sh
-bash scripts/elbo_ppl/ppl_lm1b_ar.sh
+bash scripts/elbo/mdlm_lm1b.sh
+bash scripts/elbo/sedd_lm1b.sh
+bash scripts/ar/elbo_lm1b.sh
 
 # DUEL
 for BS in 4 8 16; do
-    sed -i "s/^BLOCK_SIZE=.*/BLOCK_SIZE=${BS}/" scripts/duel_ppl/bd3lm_lm1b.sh
-    bash scripts/duel_ppl/bd3lm_lm1b.sh
+    sed -i "s/^BLOCK_SIZE=.*/BLOCK_SIZE=${BS}/" scripts/duel/bd3lm_lm1b.sh
+    bash scripts/duel/bd3lm_lm1b.sh
 done
-bash scripts/duel_ppl/mdlm_lm1b.sh
-bash scripts/duel_ppl/sedd_lm1b.sh
+bash scripts/duel/mdlm_lm1b.sh
+bash scripts/duel/sedd_lm1b.sh
 
 echo "========================================"
 echo "Table 3: Zero-Shot Perplexity"
 echo "========================================"
 
 # ELBO
-bash scripts/elbo_zs_ppl/ppl_zs_owt_bd3lm.sh
-bash scripts/elbo_zs_ppl/ppl_zs_owt_mdlm.sh
-bash scripts/elbo_zs_ppl/ppl_zs_owt_sedd.sh
-bash scripts/elbo_zs_ppl/ppl_zs_owt_ar.sh
+for data in ag_news lambada ptb wikitext103 scientific_papers_pubmed scientific_papers_arxiv lm1b-gpt2; do
+    bash scripts/elbo_zs/bd3lm_${data}.sh
+    bash scripts/elbo_zs/mdlm_${data}.sh
+    bash scripts/elbo_zs/sedd_${data}.sh
+    bash scripts/ar_zs/elbo_${data}.sh
+done
 
 # DUEL
-bash scripts/duel_zs_ppl/owt_bd3lm_block_greedy.sh
-bash scripts/duel_zs_ppl/owt_mdlm_block_greedy.sh
-bash scripts/duel_zs_ppl/owt_sedd_block_greedy.sh
+for data in ag_news lambada ptb wikitext103 scientific_papers_pubmed scientific_papers_arxiv lm1b-gpt2; do
+    bash scripts/duel_zs/bd3lm_${data}.sh
+    bash scripts/duel_zs/mdlm_${data}.sh
+    bash scripts/duel_zs/sedd_${data}.sh
+done
 
 echo "========================================"
 echo "Table 4: Sampler Comparison"
 echo "========================================"
 
 # DUEL exact PPL
-bash scripts/sampler_duel_ppl/block_greedy.sh
-bash scripts/sampler_duel_ppl/block_left_to_right.sh
-bash scripts/sampler_duel_ppl/block_probability_margin.sh
-bash scripts/sampler_duel_ppl/block_conf_thresh.sh
-bash scripts/sampler_duel_ppl/elbo.sh
+bash scripts/duel_strategy/block_greedy.sh
+bash scripts/duel_strategy/block_left_to_right.sh
+bash scripts/duel_strategy/block_probability_margin.sh
+bash scripts/duel_strategy/block_conf_thresh.sh
+bash scripts/duel_strategy/elbo_baseline.sh
 
 # Generative PPL
-bash scripts/sampler_gen_ppl/block_greedy.sh
-bash scripts/sampler_gen_ppl/block_left_to_right.sh
-bash scripts/sampler_gen_ppl/block_probability_margin.sh
-bash scripts/sampler_gen_ppl/block_confidence_threshold.sh
-bash scripts/sampler_gen_ppl/uniform.sh
+bash scripts/gen_strategy/block_greedy.sh
+bash scripts/gen_strategy/block_left_to_right.sh
+bash scripts/gen_strategy/block_probability_margin.sh
+bash scripts/gen_strategy/block_confidence_threshold.sh
+bash scripts/gen_strategy/uniform.sh
 
 echo "========================================"
 echo "All experiments complete!"
