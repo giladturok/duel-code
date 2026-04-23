@@ -16,61 +16,45 @@ echo "Table 1: In-Domain Perplexity (OWT)"
 echo "========================================"
 
 # ELBO
-for BS in 4 8 16; do
-    sed -i "s/^BLOCK_SIZE=.*/BLOCK_SIZE=${BS}/" scripts/elbo/bd3lm_owt.sh
-    bash scripts/elbo/bd3lm_owt.sh
-done
-bash scripts/elbo/mdlm_owt.sh
-bash scripts/elbo/sedd_owt.sh
-bash scripts/ar/elbo_owt.sh
+bash scripts/1_owt_perplexity/bd3lm_elbo.sh
+bash scripts/1_owt_perplexity/mdlm_elbo.sh
+bash scripts/1_owt_perplexity/sedd_elbo.sh
+bash scripts/1_owt_perplexity/ar.sh
 
 # DUEL
-for BS in 4 8 16; do
-    sed -i "s/^BLOCK_SIZE=.*/BLOCK_SIZE=${BS}/" scripts/duel/bd3lm_owt.sh
-    bash scripts/duel/bd3lm_owt.sh
-done
-bash scripts/duel/mdlm_owt.sh
-bash scripts/duel/sedd_owt.sh
+bash scripts/1_owt_perplexity/bd3lm_duel.sh
+bash scripts/1_owt_perplexity/mdlm_duel.sh
+bash scripts/1_owt_perplexity/sedd_duel.sh
 
 echo "========================================"
 echo "Table 2: In-Domain Perplexity (LM1B)"
 echo "========================================"
 
 # ELBO
-for BS in 4 8 16; do
-    sed -i "s/^BLOCK_SIZE=.*/BLOCK_SIZE=${BS}/" scripts/elbo/bd3lm_lm1b.sh
-    bash scripts/elbo/bd3lm_lm1b.sh
-done
-bash scripts/elbo/mdlm_lm1b.sh
-bash scripts/elbo/sedd_lm1b.sh
-bash scripts/ar/elbo_lm1b.sh
+bash scripts/2_lm1b_perplexity/bd3lm_elbo.sh
+bash scripts/2_lm1b_perplexity/mdlm_elbo.sh
+bash scripts/2_lm1b_perplexity/sedd_elbo.sh
+bash scripts/2_lm1b_perplexity/ar.sh
 
 # DUEL
-for BS in 4 8 16; do
-    sed -i "s/^BLOCK_SIZE=.*/BLOCK_SIZE=${BS}/" scripts/duel/bd3lm_lm1b.sh
-    bash scripts/duel/bd3lm_lm1b.sh
-done
-bash scripts/duel/mdlm_lm1b.sh
-bash scripts/duel/sedd_lm1b.sh
+bash scripts/2_lm1b_perplexity/bd3lm_duel.sh
+bash scripts/2_lm1b_perplexity/mdlm_duel.sh
+bash scripts/2_lm1b_perplexity/sedd_duel.sh
 
 echo "========================================"
 echo "Table 3: Zero-Shot Perplexity"
 echo "========================================"
 
 # ELBO
-for data in ag_news lambada ptb wikitext103 scientific_papers_pubmed scientific_papers_arxiv lm1b-gpt2; do
-    bash scripts/elbo_zs/bd3lm_${data}.sh
-    bash scripts/elbo_zs/mdlm_${data}.sh
-    bash scripts/elbo_zs/sedd_${data}.sh
-    bash scripts/ar_zs/elbo_${data}.sh
-done
+bash scripts/3_zeroshot_perplexity/bd3lm_elbo.sh
+bash scripts/3_zeroshot_perplexity/mdlm_elbo.sh
+bash scripts/3_zeroshot_perplexity/sedd_elbo.sh
+bash scripts/3_zeroshot_perplexity/ar.sh
 
 # DUEL
-for data in ag_news lambada ptb wikitext103 scientific_papers_pubmed scientific_papers_arxiv lm1b-gpt2; do
-    bash scripts/duel_zs/bd3lm_${data}.sh
-    bash scripts/duel_zs/mdlm_${data}.sh
-    bash scripts/duel_zs/sedd_${data}.sh
-done
+bash scripts/3_zeroshot_perplexity/bd3lm_duel.sh
+bash scripts/3_zeroshot_perplexity/mdlm_duel.sh
+bash scripts/3_zeroshot_perplexity/sedd_duel.sh
 
 echo "========================================"
 echo "Table 4: Sampler Comparison"
