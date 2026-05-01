@@ -86,6 +86,12 @@ def generate_samples(config, logger, tokenizer):
   logger.info('Generating samples.')
   model = _load_from_checkpoint(config=config,
                                 tokenizer=tokenizer)
+  # Sampling path runs outside a Lightning Trainer, so Lightning's automatic
+  # device move doesn't apply. reset_kv_cache hardcodes device='cuda', so the
+  # rest of the model must live on cuda too or rotary cos/sin stay on CPU
+  # and we hit a device-mismatch inside apply_rotary_pos_emb_torchscript.
+  if torch.cuda.is_available():
+    model = model.to('cuda')
   if config.eval.disable_ema:
     logger.info('Disabling EMA.')
     model.ema = None

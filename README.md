@@ -28,23 +28,26 @@ This codebase builds on the [BD3-LM](https://github.com/kuleshov-group/bd3lms) f
 | `exact_likelihood.py` | DUEL exact log-likelihood computation |
 | `selection_strategies.py` | Deterministic unmasking policies (greedy, L2R, prob. margin, conf. threshold) |
 | `dataloader.py` | Data loading utilities |
-| `metrics.py` | Evaluation metrics (PPL, BPD, gen. PPL, MAUVE) |
+| `metrics.py` | Evaluation metrics (perplexity, BPD, gen. perplexity, MAUVE) |
 | `noise_schedule.py` | Noise schedules |
 | `models/` | Network architectures (DiT, AR transformer) |
 | `configs/` | Hydra configuration files |
 | `scripts/` | Shell scripts for all experiments |
+| `ntbks/` | Jupyter notebooks for figure generation |
 
 ### Scripts Directory
 
-| Directory | Experiment |
-|-----------|------------|
-| `scripts/duel_ppl/` | In-domain exact likelihood (DUEL) |
-| `scripts/elbo_ppl/` | In-domain ELBO likelihood |
-| `scripts/duel_zs_ppl/` | Zero-shot exact likelihood (DUEL) |
-| `scripts/elbo_zs_ppl/` | Zero-shot ELBO likelihood |
-| `scripts/sampler_duel_ppl/` | Sampler comparison via exact PPL |
-| `scripts/sampler_gen_ppl/` | Sampler comparison via generative PPL |
-| `scripts/gen_ppl/` | Generative perplexity evaluation |
+Each perplexity directory contains scripts for all models (`bd3lm_elbo`, `bd3lm_duel`, `mdlm_elbo`, `mdlm_duel`, `sedd_elbo`, `sedd_duel`, `ar`). AR models support ELBO only.
+
+| Directory / File | Experiment |
+|------------------|------------|
+| `scripts/owt_perplexity/` | OWT in-domain perplexity |
+| `scripts/lm1b_perplexity/` | LM1B in-domain perplexity |
+| `scripts/zeroshot_perplexity/` | Zero-shot perplexity |
+| `scripts/sampler_comparison/duel_ppl.sh` | Sampler comparison via exact (DUEL) perplexity |
+| `scripts/sampler_comparison/sample_eval.sh` | Sampler comparison via generative perplexity |
+| `scripts/log_sample_stats.py` | Aggregate generative perplexity results from `sample_logs/` |
+| `scripts/run_all.sh` | Run all experiments end-to-end |
 
 ## Getting Started
 
@@ -80,7 +83,9 @@ mkdir -p outputs watch_folder logs sample_logs
 
 ## Checkpoints
 
-### OpenWebText (auto-downloaded from HuggingFace)
+### OpenWebText
+
+The following checkpoints download automatically from HuggingFace:
 
 | Model | HuggingFace ID |
 |-------|---------------|
@@ -88,17 +93,22 @@ mkdir -p outputs watch_folder logs sample_logs
 | BD3-LM (L'=8) | `kuleshov-group/bd3lm-owt-block_size8` |
 | BD3-LM (L'=16) | `kuleshov-group/bd3lm-owt-block_size16` |
 | MDLM | `kuleshov-group/mdlm-owt` |
-| AR | [Google Drive](https://drive.google.com/drive/folders/16LuuptK7Xfk-vzhQYZBZ0SA-B-BFluau?usp=sharing) |
-| SEDD | [Google Drive](https://drive.google.com/drive/folders/16LuuptK7Xfk-vzhQYZBZ0SA-B-BFluau?usp=sharing) |
 
-### LM1B (download manually)
+The following must be downloaded manually from [Google Drive](https://drive.google.com/drive/folders/16LuuptK7Xfk-vzhQYZBZ0SA-B-BFluau?usp=sharing):
 
-LM1B checkpoints for BD3-LM, MDLM, SEDD, and AR are available via Google Drive. Download and update the checkpoint paths in the relevant scripts under `scripts/duel_ppl/` and `scripts/elbo_ppl/`.
+| Model |
+|-------|
+| AR (OWT) |
+| SEDD (OWT) |
+
+### LM1B
+
+All LM1B checkpoints (BD3-LM, MDLM, SEDD, AR) must be downloaded manually from [Google Drive](https://drive.google.com/drive/folders/16LuuptK7Xfk-vzhQYZBZ0SA-B-BFluau?usp=sharing). After downloading, update `eval.checkpoint_path` in the relevant scripts under `scripts/lm1b_perplexity/`.
 
 ## Reproducing Experiments
 
 The main entry point is `main.py` with three evaluation modes:
-- `mode=duel_ppl` — DUEL exact log-likelihood
+- `mode=duel_ppl` — DUEL exact perplexity
 - `mode=elbo_ppl` — ELBO-based perplexity
 - `mode=sample_eval` — Generative sampling + metrics
 
@@ -107,95 +117,104 @@ To run **all experiments** across all tables (including all block sizes and samp
 bash scripts/run_all.sh
 ```
 
-Individual scripts are designed for SLURM but can be run directly with `python`. For example, to run a script without SLURM:
+Scripts are designed for SLURM (`sbatch`) but can be run directly with `bash`. For example:
 
 ```bash
-# Instead of: sbatch scripts/elbo_ppl/ppl_owt_bd3lm.sh
-# Run directly:
-BLOCK_SIZE=4 python -u main.py \
-    loader.eval_batch_size=16 \
-    model=small \
-    algo=bd3lm \
-    algo.backbone=hf_dit \
-    data=openwebtext-split \
-    data.insert_valid_special=False \
-    model.length=1024 \
-    model.attn_backend=flex \
-    block_size=${BLOCK_SIZE} \
-    eval.checkpoint_path=kuleshov-group/bd3lm-owt-block_size${BLOCK_SIZE} \
-    wandb.project=duel \
-    +wandb.name=elbo-owt-bd3lm \
-    mode=elbo_ppl
+# Instead of:
+sbatch scripts/owt_perplexity/bd3lm_elbo.sh
+
+# Run directly (inherits the active conda environment):
+bash scripts/owt_perplexity/bd3lm_elbo.sh
 ```
 
-**Adjusting batch size:** Change `loader.eval_batch_size` to fit your GPU memory (e.g., `loader.eval_batch_size=8` for smaller GPUs).
+**Adjusting batch size:** Edit `loader.eval_batch_size` inside the script to fit your GPU memory.
 
-**Weights & Biases logging:** All scripts log to W&B project `duel` by default. To disable W&B, replace the `wandb.project=...` and `wandb.name=...` lines with `wandb=null`.
+**Weights & Biases logging:** All scripts log to W&B project `duel` by default. To disable W&B, set `wandb=null` in the script.
 
 ### Table 1: In-Domain Perplexity (OWT)
 
 **ELBO perplexity:**
 ```bash
-# BD3-LM (set BLOCK_SIZE=4, 8, or 16 inside the script)
-bash scripts/elbo_ppl/ppl_owt_bd3lm.sh
-
-# MDLM, SEDD, AR
-bash scripts/elbo_ppl/ppl_owt_mdlm.sh
-bash scripts/elbo_ppl/ppl_owt_sedd.sh
-bash scripts/elbo_ppl/ppl_owt_ar.sh
+bash scripts/owt_perplexity/bd3lm_elbo.sh  # BD3-LM (sweeps L'=4, 8, 16)
+bash scripts/owt_perplexity/mdlm_elbo.sh
+bash scripts/owt_perplexity/sedd_elbo.sh
 ```
 
-**DUEL exact perplexity:**
+**DUEL perplexity:**
 ```bash
-# BD3-LM (set BLOCK_SIZE=4, 8, or 16 inside the script)
-bash scripts/duel_ppl/bd3lm_owt.sh
+bash scripts/owt_perplexity/bd3lm_duel.sh  # BD3-LM (sweeps L'=4, 8, 16)
+bash scripts/owt_perplexity/mdlm_duel.sh
+bash scripts/owt_perplexity/sedd_duel.sh
+```
 
-# MDLM, SEDD
-bash scripts/duel_ppl/mdlm_owt.sh
-bash scripts/duel_ppl/sedd_owt.sh
+**AR perplexity:**
+```bash
+bash scripts/owt_perplexity/ar.sh
 ```
 
 ### Table 2: In-Domain Perplexity (LM1B)
 
-Same structure as OWT. Scripts are in `scripts/elbo_ppl/ppl_lm1b_*.sh` and `scripts/duel_ppl/*_lm1b.sh`. **Note:** LM1B scripts require local checkpoint paths — update `eval.checkpoint_path` before running.
+Same structure as OWT. Update `eval.checkpoint_path` to your local LM1B checkpoint before running.
+
+**ELBO perplexity:**
+```bash
+bash scripts/lm1b_perplexity/bd3lm_elbo.sh
+bash scripts/lm1b_perplexity/mdlm_elbo.sh
+bash scripts/lm1b_perplexity/sedd_elbo.sh
+```
+
+**DUEL perplexity:**
+```bash
+bash scripts/lm1b_perplexity/bd3lm_duel.sh
+bash scripts/lm1b_perplexity/mdlm_duel.sh
+bash scripts/lm1b_perplexity/sedd_duel.sh
+```
+
+**AR perplexity:**
+```bash
+bash scripts/lm1b_perplexity/ar.sh
+```
 
 ### Table 3: Zero-Shot Perplexity
 
-**ELBO:**
+Evaluates on AG News, LAMBADA, PTB, WikiText-2, WikiText-103, PubMed, ArXiv, LM1B.
+
+**ELBO perplexity:**
 ```bash
-bash scripts/elbo_zs_ppl/ppl_zs_owt_bd3lm.sh  # BD3-LM
-bash scripts/elbo_zs_ppl/ppl_zs_owt_mdlm.sh   # MDLM
-bash scripts/elbo_zs_ppl/ppl_zs_owt_sedd.sh   # SEDD
-bash scripts/elbo_zs_ppl/ppl_zs_owt_ar.sh     # AR
+bash scripts/zeroshot_perplexity/bd3lm_elbo.sh
+bash scripts/zeroshot_perplexity/mdlm_elbo.sh
+bash scripts/zeroshot_perplexity/sedd_elbo.sh
 ```
 
-**DUEL exact:**
+**DUEL perplexity:**
 ```bash
-bash scripts/duel_zs_ppl/owt_bd3lm_block_greedy.sh  # BD3-LM
-bash scripts/duel_zs_ppl/owt_mdlm_block_greedy.sh   # MDLM
-bash scripts/duel_zs_ppl/owt_sedd_block_greedy.sh   # SEDD
+bash scripts/zeroshot_perplexity/bd3lm_duel.sh
+bash scripts/zeroshot_perplexity/mdlm_duel.sh
+bash scripts/zeroshot_perplexity/sedd_duel.sh
 ```
 
-These evaluate on: AG News, LAMBADA, PTB, WikiText-2, WikiText-103, PubMed, ArXiv, LM1B.
-
-### Table 4: Sampler Comparison (BD3-LM L'=16, OWT)
-
-**Exact perplexity under different unmasking strategies:**
+**AR perplexity:**
 ```bash
-bash scripts/sampler_duel_ppl/block_greedy.sh              # Greedy confidence
-bash scripts/sampler_duel_ppl/block_left_to_right.sh       # Left-to-right
-bash scripts/sampler_duel_ppl/block_probability_margin.sh  # Probability margin
-bash scripts/sampler_duel_ppl/block_conf_thresh.sh         # Confidence threshold
-bash scripts/sampler_duel_ppl/elbo.sh                      # ELBO baseline
+bash scripts/zeroshot_perplexity/ar.sh
+```
+
+### Table 4 / Figures 4–5: Sampler Comparison (BD3-LM L'=16, OWT)
+
+Each script sweeps all strategies and NFE budgets in a single job.
+
+**DUEL perplexity under different unmasking strategies:**
+```bash
+bash scripts/sampler_comparison/duel_ppl.sh
 ```
 
 **Generative perplexity under different unmasking strategies:**
 ```bash
-bash scripts/sampler_gen_ppl/block_greedy.sh              # Greedy confidence
-bash scripts/sampler_gen_ppl/block_left_to_right.sh       # Left-to-right
-bash scripts/sampler_gen_ppl/block_probability_margin.sh  # Probability margin
-bash scripts/sampler_gen_ppl/block_confidence_threshold.sh # Confidence threshold
-bash scripts/sampler_gen_ppl/uniform.sh                   # Uniform baseline
+bash scripts/sampler_comparison/sample_eval.sh
+```
+
+After `sample_eval.sh` completes, aggregate results from `sample_logs/`:
+```bash
+python scripts/log_sample_stats.py
 ```
 
 ### Acknowledgements

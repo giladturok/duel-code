@@ -15,12 +15,10 @@
 #SBATCH --open-mode=append              # Do not overwrite logs
 #SBATCH --requeue                       # Requeue upon preemption
 
-source ~/miniconda3/etc/profile.d/conda.sh
-conda activate dllm
 
 export TRITON_NUM_STAGES=1
 
-srun python -u main.py \
+python -u main.py \
     loader.num_workers=4 \
     loader.eval_batch_size=64 \
     model=small \

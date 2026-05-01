@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -J bd3lm_duel_owt               # Job name
+#SBATCH -J bd3lm_elbo_zs                # Job name
 #SBATCH -o watch_folder/%x_%j.out       # log file (out & err)
 #SBATCH -e watch_folder/%x_%j.err       # log file (out & err)
 #SBATCH -N 1                            # Total number of nodes requested
@@ -7,36 +7,29 @@
 #SBATCH --mem=32G                       # server memory requested (per node)
 #SBATCH -t 960:00:00                    # Time limit (hh:mm:ss)
 #SBATCH --partition=gpu                 # Request partition
-#SBATCH --constraint="[a100|h200|h100]"
-#SBATCH --ntasks-per-node=1
+#SBATCH --constraint="[a5000|a6000|a100]"
+#SBATCH --ntasks-per-node=4
+#SBATCH --gres=gpu:4                    # Type/number of GPUs needed
 #SBATCH --cpus-per-task=4
-#SBATCH --gres=gpu:1                    # Type/number of GPUs needed
 #SBATCH --open-mode=append              # Do not overwrite logs
 #SBATCH --requeue                       # Requeue upon preemption
 
-source ~/miniconda3/etc/profile.d/conda.sh
-conda activate bd3lm
+BLOCK_SIZE=4
 
-export TRITON_NUM_STAGES=1
-
-# Loop over block sizes for BD3-LM DUEL evaluation
-for BLOCK_SIZE in 4 8 16; do
-    srun python -u main.py \
+# Loop over 7 zero-shot datasets
+for DATASET in ag_news lambada lm1b-gpt2 ptb scientific_papers_arxiv scientific_papers_pubmed wikitext103; do
+    python -u main.py \
         loader.num_workers=4 \
-        loader.eval_batch_size=64 \
+        loader.eval_batch_size=16 \
         model=small \
         algo=bd3lm \
         algo.backbone=hf_dit \
-        data=openwebtext-split \
-        data.insert_valid_special=False \
+        data=${DATASET} \
+        +data.insert_valid_eos=False \
         model.length=1024 \
-        model.attn_backend=sdpa \
         block_size=${BLOCK_SIZE} \
         eval.checkpoint_path=kuleshov-group/bd3lm-owt-block_size${BLOCK_SIZE} \
-        eval.exact_ll_strategy=block_greedy \
-        eval.exact_ll_k=1 \
-        +eval.exact_ll_use_kv_cache=true \
-        sampling.kv_cache=true \
-        wandb.project=duel +wandb.name="${SLURM_JOB_NAME}_block${BLOCK_SIZE}" \
-        mode=duel_ppl > $PWD/logs/bd3lm_owt_duel_block_size${BLOCK_SIZE}.log
+        wandb.project=duel +wandb.name="${SLURM_JOB_NAME}_${DATASET}" \
+        mode=elbo_ppl \
+        model.attn_backend=flex > $PWD/logs/bd3lm_${DATASET}_elbo_block_size${BLOCK_SIZE}.log
 done

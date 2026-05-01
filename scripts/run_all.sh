@@ -1,79 +1,68 @@
 #!/bin/bash
-# Run all DUEL experiments by calling individual scripts.
+# Run all DUEL paper experiments by submitting individual scripts.
 #
 # Usage:
-#   bash scripts/run_all.sh            # Run locally (requires GPU)
-#   sbatch scripts/run_all.sh          # Submit as SLURM job
+#   bash scripts/run_all.sh            # Submit all sbatch jobs
 #
 # To run a subset, comment out sections below.
-# Individual scripts use `srun` for SLURM compatibility.
-# When running locally (not via sbatch), srun falls back to local execution.
 
 set -e
 
 echo "========================================"
-echo "Table 1: In-Domain Perplexity (OWT)"
+echo "Tables 2 & 4: In-Domain Perplexity (OWT)"
 echo "========================================"
 
 # ELBO
-bash scripts/1_owt_perplexity/bd3lm_elbo.sh
-bash scripts/1_owt_perplexity/mdlm_elbo.sh
-bash scripts/1_owt_perplexity/sedd_elbo.sh
-bash scripts/1_owt_perplexity/ar.sh
+bash scripts/owt_perplexity/bd3lm_elbo.sh
+bash scripts/owt_perplexity/mdlm_elbo.sh
+bash scripts/owt_perplexity/sedd_elbo.sh
+bash scripts/owt_perplexity/ar.sh
 
 # DUEL
-bash scripts/1_owt_perplexity/bd3lm_duel.sh
-bash scripts/1_owt_perplexity/mdlm_duel.sh
-bash scripts/1_owt_perplexity/sedd_duel.sh
+bash scripts/owt_perplexity/bd3lm_duel.sh
+bash scripts/owt_perplexity/mdlm_duel.sh
+bash scripts/owt_perplexity/sedd_duel.sh
 
 echo "========================================"
-echo "Table 2: In-Domain Perplexity (LM1B)"
+echo "Table 3: In-Domain Perplexity (LM1B)"
 echo "========================================"
 
 # ELBO
-bash scripts/2_lm1b_perplexity/bd3lm_elbo.sh
-bash scripts/2_lm1b_perplexity/mdlm_elbo.sh
-bash scripts/2_lm1b_perplexity/sedd_elbo.sh
-bash scripts/2_lm1b_perplexity/ar.sh
+bash scripts/lm1b_perplexity/bd3lm_elbo.sh
+bash scripts/lm1b_perplexity/mdlm_elbo.sh
+bash scripts/lm1b_perplexity/sedd_elbo.sh
+bash scripts/lm1b_perplexity/ar.sh
 
 # DUEL
-bash scripts/2_lm1b_perplexity/bd3lm_duel.sh
-bash scripts/2_lm1b_perplexity/mdlm_duel.sh
-bash scripts/2_lm1b_perplexity/sedd_duel.sh
+bash scripts/lm1b_perplexity/bd3lm_duel.sh
+bash scripts/lm1b_perplexity/mdlm_duel.sh
+bash scripts/lm1b_perplexity/sedd_duel.sh
 
 echo "========================================"
-echo "Table 3: Zero-Shot Perplexity"
+echo "Tables 4 & 8: Zero-Shot Perplexity"
 echo "========================================"
 
 # ELBO
-bash scripts/3_zeroshot_perplexity/bd3lm_elbo.sh
-bash scripts/3_zeroshot_perplexity/mdlm_elbo.sh
-bash scripts/3_zeroshot_perplexity/sedd_elbo.sh
-bash scripts/3_zeroshot_perplexity/ar.sh
+bash scripts/zeroshot_perplexity/bd3lm_elbo.sh
+bash scripts/zeroshot_perplexity/mdlm_elbo.sh
+bash scripts/zeroshot_perplexity/sedd_elbo.sh
+bash scripts/zeroshot_perplexity/ar.sh
 
 # DUEL
-bash scripts/3_zeroshot_perplexity/bd3lm_duel.sh
-bash scripts/3_zeroshot_perplexity/mdlm_duel.sh
-bash scripts/3_zeroshot_perplexity/sedd_duel.sh
+bash scripts/zeroshot_perplexity/bd3lm_duel.sh
+bash scripts/zeroshot_perplexity/mdlm_duel.sh
+bash scripts/zeroshot_perplexity/sedd_duel.sh
 
 echo "========================================"
-echo "Table 4: Sampler Comparison"
+echo "Table 6 / Figure 4 / Figure 5: Sampler Comparison"
 echo "========================================"
 
-# DUEL exact PPL
-bash scripts/duel_strategy/block_greedy.sh
-bash scripts/duel_strategy/block_left_to_right.sh
-bash scripts/duel_strategy/block_probability_margin.sh
-bash scripts/duel_strategy/block_conf_thresh.sh
-bash scripts/duel_strategy/elbo_baseline.sh
+# DUEL PPL for all unmasking rules + ELBO baseline
+bash scripts/sampler_comparison/duel_ppl.sh
 
-# Generative PPL
-bash scripts/gen_strategy/block_greedy.sh
-bash scripts/gen_strategy/block_left_to_right.sh
-bash scripts/gen_strategy/block_probability_margin.sh
-bash scripts/gen_strategy/block_confidence_threshold.sh
-bash scripts/gen_strategy/uniform.sh
+# Gen PPL + entropy + MAUVE for all sampling strategies + uniform baseline
+bash scripts/sampler_comparison/sample_eval.sh
 
 echo "========================================"
-echo "All experiments complete!"
+echo "All experiments submitted!"
 echo "========================================"

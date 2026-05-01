@@ -1,4 +1,8 @@
 .DS_Store
+.claude/
+ai_diary.md
+slurm-*.out
+tmp.md
 
 .hf_cache
 test/

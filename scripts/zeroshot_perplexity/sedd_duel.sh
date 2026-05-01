@@ -15,7 +15,6 @@
 #SBATCH --requeue                       # Requeue upon preemption
 
 eval "$(conda shell.bash hook)"
-conda activate bd3lm
 
 export TRITON_NUM_STAGES=1
 
