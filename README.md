@@ -75,6 +75,10 @@ mkdir -p outputs watch_folder logs sample_logs
 - `logs/` — script output logs
 - `sample_logs/` — generated text samples
 
+### Quickstart notebook
+
+For a from-scratch walkthrough of ELBO and DUEL perplexity on a single OWT example — bypassing `main.py` / Lightning / Hydra and rewriting the math by hand — see [`ntbks/example.ipynb`](ntbks/example.ipynb). It loads `kuleshov-group/mdlm-owt` directly from HuggingFace, implements the four unmasking strategies (`greedy`, `prob_margin`, `left_to_right`, `confidence_threshold`) as a `score × select` decomposition, and computes both perplexities side-by-side.
+
 ### Configuration
 
 **Data paths:** Dataset cache directories are configured in `configs/data/*.yaml` via the `cache_dir` field. Update these to point to your local data directory.
