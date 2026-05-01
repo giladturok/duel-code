@@ -54,17 +54,39 @@ INT_K_STRATEGIES=(block_greedy block_left_to_right block_probability_margin)
 # to avoid the append-mode duplication bug. Keep k=0.08 and k=1.0 CSVs.
 THRESHOLDS=(0.045 0.08 0.16 1.0)
 
-# Slug-safe name for sampling.logdir paths (preserves original filenames).
-strategy_slug() {
-    echo "$1" | tr '_' '-'
-}
+for strategy in "${INT_K_STRATEGIES[@]}"; do
+    for k in "${K_VALUES[@]}"; do
+        slug="${strategy//_/-}"
+        logdir="${SAMPLE_LOGDIR}/samples_bd3lm_len${MODEL_LENGTH}_blocksize${BLOCK_SIZE}_${slug}_k${k}.txt"
 
-run_strategy() {
-    local strategy=$1
-    local k=$2
-    local slug
-    slug="$(strategy_slug "${strategy}")"
-    local logdir="${SAMPLE_LOGDIR}/samples_bd3lm_len${MODEL_LENGTH}_blocksize${BLOCK_SIZE}_${slug}_k${k}.txt"
+        python -u main.py \
+            loader.eval_batch_size=1 \
+            model=small \
+            algo=bd3lm \
+            algo.T=5000 \
+            algo.backbone=hf_dit \
+            data=openwebtext-split \
+            model.length=${MODEL_LENGTH} \
+            block_size=${BLOCK_SIZE} \
+            wandb.project=duel +wandb.name="${SLURM_JOB_NAME}_${strategy}_k${k}" \
+            mode=sample_eval \
+            eval.checkpoint_path=${CKPT} \
+            model.attn_backend=sdpa \
+            seed=${SEED} \
+            sampling.num_sample_batches=${NUM_SAMPLE_BATCHES} \
+            sampling.nucleus_p=${NUCLEUS_P} \
+            sampling.kv_cache=true \
+            +sampling.strategy=${strategy} \
+            +sampling.strategy_k=${k} \
+            sampling.logdir=${logdir}
+    done
+done
+
+# Confidence threshold strategy: sweep thresholds chosen to target gen-NFE {128, 256, 512, 1024}.
+strategy=block_confidence_threshold
+slug="${strategy//_/-}"
+for k in "${THRESHOLDS[@]}"; do
+    logdir="${SAMPLE_LOGDIR}/samples_bd3lm_len${MODEL_LENGTH}_blocksize${BLOCK_SIZE}_${slug}_k${k}.txt"
 
     python -u main.py \
         loader.eval_batch_size=1 \
@@ -86,39 +108,25 @@ run_strategy() {
         +sampling.strategy=${strategy} \
         +sampling.strategy_k=${k} \
         sampling.logdir=${logdir}
-}
-
-# TEMP: only running confidence_threshold sweep to reverse-engineer NFE mapping.
-# Integer-k strategies and uniform baseline are commented out; re-enable once
-# Gen-PPL NFE confirmation is done.
-
-# for strategy in "${INT_K_STRATEGIES[@]}"; do
-#     for k in "${K_VALUES[@]}"; do
-#         run_strategy "${strategy}" "${k}"
-#     done
-# done
-
-for t in "${THRESHOLDS[@]}"; do
-    run_strategy "block_confidence_threshold" "${t}"
 done
 
-# # Uniform baseline (no strategy/strategy_k flags)
-# UNIFORM_LOGDIR="${SAMPLE_LOGDIR}/samples_bd3lm_len${MODEL_LENGTH}_blocksize${BLOCK_SIZE}_uniform.txt"
-# python -u main.py \
-#     loader.eval_batch_size=1 \
-#     model=small \
-#     algo=bd3lm \
-#     algo.T=5000 \
-#     algo.backbone=hf_dit \
-#     data=openwebtext-split \
-#     model.length=${MODEL_LENGTH} \
-#     block_size=${BLOCK_SIZE} \
-#     wandb.project=duel +wandb.name="${SLURM_JOB_NAME}_uniform" \
-#     mode=sample_eval \
-#     eval.checkpoint_path=${CKPT} \
-#     model.attn_backend=sdpa \
-#     seed=${SEED} \
-#     sampling.num_sample_batches=${NUM_SAMPLE_BATCHES} \
-#     sampling.nucleus_p=${NUCLEUS_P} \
-#     sampling.kv_cache=true \
-#     sampling.logdir=${UNIFORM_LOGDIR}
+# Uniform baseline (no strategy/strategy_k flags)
+UNIFORM_LOGDIR="${SAMPLE_LOGDIR}/samples_bd3lm_len${MODEL_LENGTH}_blocksize${BLOCK_SIZE}_uniform.txt"
+python -u main.py \
+    loader.eval_batch_size=1 \
+    model=small \
+    algo=bd3lm \
+    algo.T=5000 \
+    algo.backbone=hf_dit \
+    data=openwebtext-split \
+    model.length=${MODEL_LENGTH} \
+    block_size=${BLOCK_SIZE} \
+    wandb.project=duel +wandb.name="${SLURM_JOB_NAME}_uniform" \
+    mode=sample_eval \
+    eval.checkpoint_path=${CKPT} \
+    model.attn_backend=sdpa \
+    seed=${SEED} \
+    sampling.num_sample_batches=${NUM_SAMPLE_BATCHES} \
+    sampling.nucleus_p=${NUCLEUS_P} \
+    sampling.kv_cache=true \
+    sampling.logdir=${UNIFORM_LOGDIR}
