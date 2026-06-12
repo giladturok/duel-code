@@ -1,6 +1,6 @@
 # [DUEL: Exact Likelihood for Masked Diffusion via Deterministic Unmasking](https://arxiv.org/abs/2603.01367)
 
-By [Gilad Turok](https://giladturok.github.io), [Chris De Sa](https://www.cs.cornell.edu/~cdesa/), [Volodymyr Kuleshov](https://www.cs.cornell.edu/~kuleshov/)
+By [Gilad Turok](https://giladturok.github.io), [Yair Schiff](https://yair-schiff.github.io), [Chris De Sa](https://www.cs.cornell.edu/~cdesa/), [Volodymyr Kuleshov](https://www.cs.cornell.edu/~kuleshov/)
 
 [![Paper](https://img.shields.io/badge/Paper-PDF-green)](https://arxiv.org/pdf/2603.01367)
 [![arXiv](https://img.shields.io/badge/arXiv-2603.01367-b31b1b)](https://arxiv.org/abs/2603.01367)
@@ -240,7 +240,7 @@ This repository was built off of [BD3-LMs](https://github.com/kuleshov-group/bd3
 ```bibtex
 @article{turok2026duel,
   title={DUEL: Exact Likelihood for Masked Diffusion via Deterministic Unmasking},
-  author={Turok, Gilad and De Sa, Chris and Kuleshov, Volodymyr},
+  author={Turok, Gilad and Schiff, Yair and De Sa, Chris and Kuleshov, Volodymyr},
   journal={arXiv preprint arXiv:2603.01367},
   year={2026}
 }
