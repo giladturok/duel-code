@@ -1,0 +1,22 @@
+task: gsm8k_cond_ll
+dataset_path: openai/gsm8k
+dataset_name: main
+output_type: multiple_choice
+process_docs: !function utils.process_docs
+process_results: !function utils.process_results_cond_ll
+test_split: test
+doc_to_text: "Question: {{question}}\nAnswer:"
+doc_to_target: "{{label}}"
+doc_to_choice: "{{choices}}"
+metric_list:
+  - metric: ppl_per_token
+    aggregation: mean
+    higher_is_better: false
+  - metric: nll_per_token
+    aggregation: mean
+    higher_is_better: false
+  - metric: total_nll
+    aggregation: mean
+    higher_is_better: false
+metadata:
+  version: 1.0

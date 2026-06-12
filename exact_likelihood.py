@@ -2,6 +2,7 @@
 Exact NLL computation for masked diffusion models (BD3-LM compatible).
 """
 from itertools import permutations
+import math
 import warnings
 from typing import Optional
 import torch
@@ -186,7 +187,7 @@ def compute_exact_loglikelihood_cached_permutations(
     strategy: Optional[object] = None,
     attention_mask: Optional[Tensor] = None,  # [B, L]
     block_size: Optional[int] = None,
-) -> Tensor:  # [B] - total log-likelihood per sequence
+):  # -> (ll_total: [B], steps: int)
     """
     Compute exact log-likelihood using block-wise KV caching and all permutations.
     
@@ -213,6 +214,7 @@ def compute_exact_loglikelihood_cached_permutations(
 
     batch_size, seq_len = x0.shape
     device = x0.device
+    steps = 0
 
     # Compute valid positions (account for padding)
     lengths = (
@@ -226,7 +228,7 @@ def compute_exact_loglikelihood_cached_permutations(
     # Initialize: all valid positions masked
     mask_fill = x0.new_full(x0.shape, mask_token_id)
     z_k = torch.where(is_valid, mask_fill, x0)  # [B, L]
-    
+
     num_unmasked = torch.zeros(batch_size, dtype=torch.long, device=device)  # [B]
     ll_total = torch.zeros(batch_size, device=device)  # [B]
 
@@ -241,7 +243,7 @@ def compute_exact_loglikelihood_cached_permutations(
         block_valid = is_valid[:, block_slice]  # [B, block_size]
         if not block_valid.any().item():
             continue
-        
+
         # Freeze current z_k for permutation trials
         z_k_freeze = z_k.clone()
 
@@ -251,9 +253,10 @@ def compute_exact_loglikelihood_cached_permutations(
         num_unmasked_best = num_unmasked.clone()
 
         # Try all permutations of positions in the block
-        block_permutations = permutations(range(block_end - block_start))
+        actual_block_size = block_end - block_start
+        block_permutations = permutations(range(actual_block_size))
         for perm in block_permutations:
-            
+
             # Reset z_k and num_unmasked for each permutation
             z_k_perm = z_k_freeze.clone()
             num_unmasked_perm = num_unmasked.clone()
@@ -276,11 +279,16 @@ def compute_exact_loglikelihood_cached_permutations(
         z_k = z_k_best
         num_unmasked = num_unmasked_best
         ll_total += ll_block_best  # Add best block LL to cumulative total
-            
+
+        # NFE accounting: each permutation does `actual_block_size` forwards
+        # (one per position via _loop_fn), and there are actual_block_size!
+        # permutations evaluated per block.
+        steps += math.factorial(actual_block_size) * actual_block_size
+
         # Commit block to cache (advances cache_idx for next block)
         model_forward_fn(z_k[:, block_slice], commit=True)
 
-    return ll_total
+    return ll_total, steps
 
 
 def _loop_fn(

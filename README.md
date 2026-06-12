@@ -17,8 +17,6 @@ Key findings:
 - Probability margin is the best-performing unmasking strategy under fixed compute budgets
 - MDMs can even surpass autoregressive models with oracle unmasking orderings
 
-This codebase builds on the [BD3-LM](https://github.com/kuleshov-group/bd3lms) framework.
-
 ## Code Organization
 
 | File | Description |
@@ -34,6 +32,16 @@ This codebase builds on the [BD3-LM](https://github.com/kuleshov-group/bd3lms) f
 | `configs/` | Hydra configuration files |
 | `scripts/` | Shell scripts for all experiments |
 | `ntbks/` | Jupyter notebooks for figure generation |
+| `large_scale/` | Separate subdirectory for the LLaDA-8B + Llama3-8B experiments (Table 5) — wraps `lm-eval-harness`. See [`large_scale/README.md`](large_scale/README.md). |
+
+### Reproducing the paper
+
+| Paper element | How to run | Output |
+|---|---|---|
+| Tables 4 / 6 (OWT NFE sweeps) | `sbatch scripts/sampler_comparison/duel_ppl.sh` (DUEL PPL), `sbatch scripts/sampler_comparison/sample_eval.sh` (Gen PPL) | `logs/`, `sample_logs/` |
+| Table 5 (LLaDA-8B + Llama3-8B) | `cd large_scale && bash scripts/table5.sh` | `large_scale/outputs/table5/` |
+| Table 7 (BD3-LM oracle on AG News) | `sbatch scripts/sampler_comparison/oracle_unmask.sh` | `logs/bd3lm_ag_news_block_size4_exact_ll_block_permutation.log` |
+| Figures 4 / 5 (sampler comparison) | Re-execute `ntbks/fig__sampler_comparison.ipynb` after the above sweeps | inline in the notebook |
 
 ### Scripts Directory
 
@@ -46,8 +54,10 @@ Each perplexity directory contains scripts for all models (`bd3lm_elbo`, `bd3lm_
 | `scripts/zeroshot_perplexity/` | Zero-shot perplexity |
 | `scripts/sampler_comparison/duel_ppl.sh` | Sampler comparison via exact (DUEL) perplexity |
 | `scripts/sampler_comparison/sample_eval.sh` | Sampler comparison via generative perplexity |
+| `scripts/sampler_comparison/oracle_unmask.sh` | Oracle (block-permutation) unmasking on AG News (Table 7) |
 | `scripts/log_sample_stats.py` | Aggregate generative perplexity results from `sample_logs/` |
 | `scripts/run_all.sh` | Run all experiments end-to-end |
+| `large_scale/scripts/table5.sh` | Table 5 reproduction (LLaDA + Llama3 on Wikitext / Lambada / AG News) |
 
 ## Getting Started
 

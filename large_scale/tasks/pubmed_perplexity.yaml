@@ -1,0 +1,22 @@
+task: pubmed_perplexity
+dataset_path: armanc/scientific_papers
+dataset_name: pubmed
+output_type: loglikelihood_rolling
+training_split: train
+validation_split: validation
+test_split: test
+doc_to_text: "article"
+doc_to_target: "article"
+should_decontaminate: false
+metric_list:
+  - metric: word_perplexity
+    aggregation: weighted_perplexity
+    higher_is_better: false
+  - metric: byte_perplexity
+    aggregation: weighted_perplexity
+    higher_is_better: false
+  - metric: bits_per_byte
+    aggregation: bits_per_byte
+    higher_is_better: false
+metadata:
+  version: 1.0

@@ -1,0 +1,36 @@
+task: gpqa_main_n_shot
+dataset_name: gpqa_main
+dataset_path: Idavidrein/gpqa
+tag: gpqa
+output_type: multiple_choice
+process_docs: !function _gpqa_utils.process_docs
+process_results: !function _common_utils.process_results_multiple_choice
+training_split: train
+# Because huggingface dataset only has train split
+validation_split: train
+test_split: null
+description: "Here are some example questions from experts. Answer the final question yourself, following the format of the previous questions exactly.\n"
+doc_to_text: "Question: {{Question}}\nChoices:\n(A) {{choice1}}\n(B) {{choice2}}\n(C) {{choice3}}\n(D) {{choice4}}\nAnswer:"
+doc_to_target: answer
+doc_to_choice: ["(A)", "(B)", "(C)", "(D)"]
+metadata:
+  version: 2.0
+metric_list:
+  - metric: acc
+    aggregation: mean
+    higher_is_better: true
+  - metric: acc_norm
+    aggregation: mean
+    higher_is_better: true
+  - metric: brier_score
+    aggregation: brier_score
+    higher_is_better: false
+  - metric: ppl_correct_answer_norm
+    aggregation: mean
+    higher_is_better: false
+  - metric: ppl_all_choices_norm
+    aggregation: !function _common_utils.micro_average_perplexity
+    higher_is_better: false
+  - metric: ece
+    aggregation: !function _common_utils.expected_calibration_error
+    higher_is_better: false

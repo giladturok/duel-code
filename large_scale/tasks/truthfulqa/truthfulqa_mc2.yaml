@@ -1,0 +1,28 @@
+include: truthfulqa_mc1.yaml
+task: truthfulqa_mc2
+doc_to_target: 0
+doc_to_choice: "{{mc2_targets.choices}}"
+process_results: !function utils.process_results_mc2  # Use MC2-specific function
+should_decontaminate: True
+doc_to_decontamination_query: question
+metric_list:
+  - metric: acc
+    aggregation: mean
+    higher_is_better: true
+  - metric: acc_norm
+    aggregation: mean
+    higher_is_better: true
+  - metric: brier_score
+    aggregation: !function utils.brier_score_mc2 
+    higher_is_better: false
+  - metric: ppl_correct_answer_norm
+    aggregation: mean
+    higher_is_better: false
+  - metric: ppl_all_choices_norm
+    aggregation: !function utils.micro_average_perplexity
+    higher_is_better: false
+  - metric: ece
+    aggregation: !function utils.expected_calibration_error
+    higher_is_better: false
+metadata:
+  version: 3.0

@@ -275,6 +275,26 @@ class ConfidenceThresholdStrategy:
 
 
 @dataclass
+class BlockPermutationStrategy:
+    """
+    Oracle: exhaustive search over all block_size! permutations per block.
+
+    Marker class. Dispatches diffusion._compute_exact_ll to the permutation
+    code path (compute_exact_loglikelihood_cached_permutations), which
+    enumerates permutations via itertools.permutations and selects positions
+    inline. select_positions is not used.
+    """
+    block_size: int
+    k: int = 1
+
+    def select_positions(self, *args, **kwargs):
+        raise NotImplementedError(
+            "BlockPermutationStrategy is a marker; selection is performed "
+            "inside compute_exact_loglikelihood_cached_permutations."
+        )
+
+
+@dataclass
 class BlockConfidenceThresholdStrategy:
     """
     Confidence threshold selection restricted to current block.

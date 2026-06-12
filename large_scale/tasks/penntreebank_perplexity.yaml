@@ -1,0 +1,14 @@
+task: penntreebank_perplexity
+dataset_path: ptb-text-only/ptb_text_only
+dataset_kwargs:
+  trust_remote_code: true
+test_split: train
+output_type: loglikelihood_rolling
+doc_to_text: "text"
+doc_to_target: "text"
+metric_list:
+  - metric: word_perplexity
+  - metric: byte_perplexity
+  - metric: bits_per_byte
+metadata:
+  version: 1.0

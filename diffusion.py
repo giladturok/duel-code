@@ -27,6 +27,7 @@ from selection_strategies import (
     BlockProbabilityMarginStrategy,
     BlockGreedyConfidenceStrategy,
     BlockConfidenceThresholdStrategy,
+    BlockPermutationStrategy,
     ConfidenceThresholdStrategy,
     GreedyConfidenceStrategy,
     LeftToRightStrategy,
@@ -238,6 +239,11 @@ class Diffusion(L.LightningModule):
             block_size=self.block_size,
             k=self.exact_ll_k,
         )
+    elif self.exact_ll_strategy_name == 'block_permutation':
+        self.exact_ll_strategy = BlockPermutationStrategy(
+            block_size=self.block_size,
+            k=self.exact_ll_k,
+        )
     elif self.exact_ll_strategy_name == 'confidence_threshold':
         self.exact_ll_strategy = ConfidenceThresholdStrategy(
             k=self.exact_ll_k,
@@ -322,12 +328,25 @@ class Diffusion(L.LightningModule):
     # Determine caching strategy
     if use_kv_cache is None:
         use_kv_cache = getattr(self, 'exact_ll_use_kv_cache', False)
-    
-    if use_kv_cache:
+
+    if isinstance(self.exact_ll_strategy, BlockPermutationStrategy):
         if not hasattr(self.backbone, 'reset_kv_cache'):
             raise RuntimeError("Backbone does not support KV caching.")
         self.backbone.reset_kv_cache(eval_batch_size=x0.size(0))
-        
+
+        ll_total, steps = compute_exact_loglikelihood_cached_permutations(
+            x0=x0,
+            model_forward_fn=model_forward_fn,
+            mask_token_id=self.mask_index,
+            strategy=self.exact_ll_strategy,
+            attention_mask=attention_mask,
+            block_size=self.block_size,
+        )
+    elif use_kv_cache:
+        if not hasattr(self.backbone, 'reset_kv_cache'):
+            raise RuntimeError("Backbone does not support KV caching.")
+        self.backbone.reset_kv_cache(eval_batch_size=x0.size(0))
+
         ll_total, steps = compute_exact_loglikelihood_cached(
             x0=x0,
             model_forward_fn=model_forward_fn,

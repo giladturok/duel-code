@@ -1,0 +1,33 @@
+tag:
+  - multiple_choice
+task: hellaswag
+dataset_path: Rowan/hellaswag
+dataset_name: null
+output_type: multiple_choice
+training_split: train
+validation_split: validation
+test_split: null
+process_docs: !function utils.process_docs
+process_results: !function utils.process_results_multiple_choice
+doc_to_text: "{{query}}"
+doc_to_target: "{{label}}"
+doc_to_choice: "choices"
+metric_list:
+  - metric: acc
+    aggregation: mean
+    higher_is_better: true
+  - metric: acc_norm
+    aggregation: mean
+    higher_is_better: true
+  - metric: brier_score
+    aggregation: brier_score
+    higher_is_better: false
+  - metric: ppl_correct_answer_norm
+    aggregation: mean
+    higher_is_better: false
+  - metric: ppl_all_choices_norm
+    aggregation: !function utils.micro_average_perplexity
+    higher_is_better: false
+  - metric: ece
+    aggregation: !function utils.expected_calibration_error
+    higher_is_better: false
