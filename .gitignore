@@ -3,6 +3,7 @@
 ai_diary.md
 slurm-*.out
 tmp.md
+*.zip
 
 .hf_cache
 test/
