@@ -329,18 +329,20 @@ class Diffusion(L.LightningModule):
     if use_kv_cache is None:
         use_kv_cache = getattr(self, 'exact_ll_use_kv_cache', False)
 
+    extras = None
     if isinstance(self.exact_ll_strategy, BlockPermutationStrategy):
         if not hasattr(self.backbone, 'reset_kv_cache'):
             raise RuntimeError("Backbone does not support KV caching.")
         self.backbone.reset_kv_cache(eval_batch_size=x0.size(0))
 
-        ll_total, steps = compute_exact_loglikelihood_cached_permutations(
+        ll_total, steps, extras = compute_exact_loglikelihood_cached_permutations(
             x0=x0,
             model_forward_fn=model_forward_fn,
             mask_token_id=self.mask_index,
             strategy=self.exact_ll_strategy,
             attention_mask=attention_mask,
             block_size=self.block_size,
+            return_per_order=True,
         )
     elif use_kv_cache:
         if not hasattr(self.backbone, 'reset_kv_cache'):
@@ -370,14 +372,23 @@ class Diffusion(L.LightningModule):
     nll_per_token = nll / answer_lens
     ppl = torch.exp(nll_per_token)
     
-    return {
+    results = {
         'nll': nll,
         'nll_per_token': nll_per_token,
         'ppl': ppl,
         'answer_lens': answer_lens,
         'steps': steps if steps is not None else None,
     }
-    
+
+    # Extra reductions of the same per-permutation table (block_permutation
+    # only). Identical tokens, identical normalization -> directly comparable.
+    if extras is not None:
+        for key, ll in (('uniform_order', extras['ll_uniform_order']),
+                        ('mixture', extras['ll_mixture'])):
+            results[f'nll_per_token_{key}'] = (-ll) / answer_lens
+
+    return results
+
   def to(self, *args, **kwargs):
     self = super().to(*args, **kwargs) 
     self.metrics.to(*args, **kwargs)
@@ -624,10 +635,20 @@ class Diffusion(L.LightningModule):
       exact_nll = self.metrics.exact_valid_nlls.compute()
       exact_ppl = torch.exp(exact_nll)
       
-      self.log('val/exact_nll', exact_nll, 
+      self.log('val/exact_nll', exact_nll,
                 on_epoch=True, sync_dist=True)
       self.log('val/exact_ppl', exact_ppl,
                 on_epoch=True, sync_dist=True)
+      # Extra reductions of the same per-permutation table (oracle path only).
+      for key in self.metrics.EXACT_EXTRA_KEYS:
+        metric = self.metrics.exact_extra_metric(key)
+        if float(metric.weight) == 0.0:
+          continue  # strategy did not produce per-order values
+        nll = metric.compute()
+        self.log(f'val/exact_nll_{key}', nll,
+                 on_epoch=True, sync_dist=True)
+        self.log(f'val/exact_ppl_{key}', torch.exp(nll),
+                 on_epoch=True, sync_dist=True)
     if self.ema:
       self.ema.restore(self._get_parameters())
     if self.var_min and not self.trainer.sanity_checking and not self.exact_eval_enabled:
@@ -762,7 +783,13 @@ class Diffusion(L.LightningModule):
         exact_results['nll_per_token'],
         exact_results['answer_lens']
     )
-    
+    # Same weighting as above so all columns share one micro-average.
+    for key in self.metrics.EXACT_EXTRA_KEYS:
+        val = exact_results.get(f'nll_per_token_{key}')
+        if val is not None:
+            self.metrics.exact_extra_metric(key).update(
+                val, exact_results['answer_lens'])
+
     # Log current batch perplexity (weighted by sequence length)
     answer_lens = exact_results['answer_lens']
     batch_nll = (exact_results['nll_per_token'] * answer_lens).sum() / answer_lens.sum()

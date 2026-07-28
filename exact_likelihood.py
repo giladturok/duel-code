@@ -187,11 +187,12 @@ def compute_exact_loglikelihood_cached_permutations(
     strategy: Optional[object] = None,
     attention_mask: Optional[Tensor] = None,  # [B, L]
     block_size: Optional[int] = None,
-):  # -> (ll_total: [B], steps: int)
+    return_per_order: bool = False,
+):  # -> (ll_total: [B], steps: int) or (ll_total, steps, extras)
     """
     Compute exact log-likelihood using block-wise KV caching and all permutations.
-    
-    
+
+
     Args:
         x0: True sequence
         model_forward_fn: Callable(x_block, commit=False) -> logits_block
@@ -202,12 +203,20 @@ def compute_exact_loglikelihood_cached_permutations(
         strategy: Selection strategy for unmasking
         attention_mask: Valid token mask
         block_size: Block size for processing
-    
+        return_per_order: If True, additionally return the uniform-order and
+            normalized-mixture reductions of the same per-permutation values.
+
     Cache mechanism:
     - For block b, model attends to:
       * Cached blocks 0..b-1 (fully unmasked, KV values stored)
       * Current block b (partially unmasked, computed on-the-fly)
     - After block b is fully unmasked, commit it to cache
+
+    Why three reductions are free: every permutation ends the block fully
+    revealed to ground truth, so the post-block state `z_k` is identical across
+    permutations. Block contributions are therefore independent and *all* of
+    oracle / uniform-order / mixture decompose as a sum over blocks of a
+    reduction of the same [B, n_perms] table.
     """
     if block_size is None:
         raise ValueError("block_size must be provided for cached LL computation.")
@@ -231,6 +240,9 @@ def compute_exact_loglikelihood_cached_permutations(
 
     num_unmasked = torch.zeros(batch_size, dtype=torch.long, device=device)  # [B]
     ll_total = torch.zeros(batch_size, device=device)  # [B]
+    # Running totals for the two extra reductions (same forwards, same tokens).
+    ll_total_uniform = torch.zeros(batch_size, device=device)  # [B]
+    ll_total_mixture = torch.zeros(batch_size, device=device)  # [B]
 
     # Process each block sequentially
     num_blocks = (seq_len + block_size - 1) // block_size
@@ -252,6 +264,15 @@ def compute_exact_loglikelihood_cached_permutations(
         z_k_best = z_k.clone()
         num_unmasked_best = num_unmasked.clone()
 
+        # Per-permutation block log-likelihoods, kept for the extra reductions.
+        # NOTE: this list is indexed by permutation of *positions*, not of
+        # orderable positions. When a block has fewer than `actual_block_size`
+        # valid positions (see the `ignore_bos` off-by-one), each distinct order
+        # of the valid subset appears the same number of times, so a uniform
+        # mean / logsumexp over this list is still a uniform mean / logsumexp
+        # over the distinct orders.
+        ll_perms_list = []
+
         # Try all permutations of positions in the block
         actual_block_size = block_end - block_start
         block_permutations = permutations(range(actual_block_size))
@@ -267,6 +288,8 @@ def compute_exact_loglikelihood_cached_permutations(
                 perm, z_k_perm, num_unmasked_perm, ll_block_perm, block_start, block_slice, model_forward_fn, mask_token_id, lengths, x0, is_valid
             )
 
+            ll_perms_list.append(ll_block_perm)
+
             # Compare to best permutation found for this block so far
             ll_better = (ll_block_perm > ll_block_best)  # [B]
 
@@ -280,6 +303,16 @@ def compute_exact_loglikelihood_cached_permutations(
         num_unmasked = num_unmasked_best
         ll_total += ll_block_best  # Add best block LL to cumulative total
 
+        if return_per_order:
+            ll_perms = torch.stack(ll_perms_list, dim=1)  # [B, n_perms]
+            n_perms = ll_perms.shape[1]
+            # Oracle == max, and must agree with the incumbent-tracking above.
+            ll_total_uniform += ll_perms.mean(dim=1)
+            ll_total_mixture += (
+                torch.logsumexp(ll_perms, dim=1) - math.log(n_perms)
+            )
+        del ll_perms_list
+
         # NFE accounting: each permutation does `actual_block_size` forwards
         # (one per position via _loop_fn), and there are actual_block_size!
         # permutations evaluated per block.
@@ -288,6 +321,12 @@ def compute_exact_loglikelihood_cached_permutations(
         # Commit block to cache (advances cache_idx for next block)
         model_forward_fn(z_k[:, block_slice], commit=True)
 
+    if return_per_order:
+        return ll_total, steps, {
+            'll_oracle': ll_total,
+            'll_uniform_order': ll_total_uniform,
+            'll_mixture': ll_total_mixture,
+        }
     return ll_total, steps
 
 

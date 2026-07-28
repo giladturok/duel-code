@@ -37,6 +37,14 @@ class NFEs(torchmetrics.aggregation.MeanMetric):
   pass
 
 class Metrics:
+  # Extra exact-NLL reductions emitted only by the `block_permutation` (oracle)
+  # path: the uniform-order expectation and the normalized order-mixture, both
+  # reduced from the same per-permutation table as the oracle max.
+  EXACT_EXTRA_KEYS = ('uniform_order', 'mixture')
+
+  def exact_extra_metric(self, key):
+    return getattr(self, f'exact_valid_nlls_{key}')
+
   def __init__(self, config=None) -> None:
     self.config=config
     metrics = torchmetrics.MetricCollection({
@@ -48,7 +56,14 @@ class Metrics:
     self.exact_eval_enabled = (config.mode == 'duel_ppl')
     if self.exact_eval_enabled:
       self.exact_valid_nlls = torchmetrics.aggregation.MeanMetric()
-      
+      # Extra reductions over the same per-permutation table, populated only by
+      # the `block_permutation` (oracle) path. Same weighting (`answer_lens`)
+      # as `exact_valid_nlls` so the token-weighted micro-average matches.
+      self.exact_valid_nlls_uniform_order = \
+        torchmetrics.aggregation.MeanMetric()
+      self.exact_valid_nlls_mixture = \
+        torchmetrics.aggregation.MeanMetric()
+
     self.nfes = NFEs()
     self.train_nlls = metrics.clone(prefix='train/')
     self.valid_nlls = metrics.clone(prefix='val/')
@@ -103,6 +118,9 @@ class Metrics:
     # Add exact_valid_nlls if it exists
     if self.exact_eval_enabled:
         self.exact_valid_nlls = self.exact_valid_nlls.to(*args, **kwargs)
+        for k in self.EXACT_EXTRA_KEYS:
+          setattr(self, f'exact_valid_nlls_{k}',
+                  self.exact_extra_metric(k).to(*args, **kwargs))
 
   def reset(self):
     self.gen_ppls, self.gen_nfes, self.gen_entropies, self.gen_lengths \
@@ -116,6 +134,8 @@ class Metrics:
       self.init_valid_vars()
     if self.exact_eval_enabled:
       self.exact_valid_nlls.reset()
+      for k in self.EXACT_EXTRA_KEYS:
+        self.exact_extra_metric(k).reset()
     self.mauve_scores = []
     self.mauve_score_mean.reset()
 
