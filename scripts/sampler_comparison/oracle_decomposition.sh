@@ -53,6 +53,15 @@ source /share/apps/software/anaconda3/etc/profile.d/conda.sh
 conda activate bd3lm
 
 export TRITON_NUM_STAGES=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+# NOTE: at eval_batch_size=128 the duel_ppl path needs an 80 GB+ GPU.
+# exact_likelihood._pad_block_logits_to_full allocates [B, 1024, 50258] fp32
+# = 26 GB per forward, of which all but the current block is -inf and never
+# read. A 48 GB a6000 OOMs. Launch the oracle/greedy modes with
+#   sbatch --constraint="[h200|h100|a100]" ...
+# (the a100 feature also covers a 40 GB variant on snavely-compute-02, which
+# the --exclude line above already removes).
 
 MODE="${MODE:-oracle}"
 SMOKE="${SMOKE:-0}"
@@ -63,7 +72,9 @@ MODEL_LENGTH=1024
 CKPT="kuleshov-group/bd3lm-owt-block_size${BLOCK_SIZE}"
 
 # Matches outputs/ag_news/2026.05.04/162506 (the run that produced 36.336).
-EVAL_BATCH_SIZE=128
+# Override with EVAL_BS=64 to fit a 48 GB a6000. Every selection rule here is
+# per-sequence, so batch size changes nothing but fp accumulation order.
+EVAL_BATCH_SIZE="${EVAL_BS:-128}"
 EXTRA=()
 
 if [ "${SMOKE}" = "1" ]; then
