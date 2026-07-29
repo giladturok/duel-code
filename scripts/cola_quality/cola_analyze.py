@@ -127,8 +127,8 @@ def main():
 
     print(f"model={args.model}  scheme={args.scheme}  stat={args.stat}  "
           f"n_boot={args.n_boot}")
-    print(f"cells present: {len(data)}  "
-          f"(missing: {sorted(set(cd.CELLS) | set(ANCHORS) - set(data)) or 'none'})")
+    missing = sorted((set(cd.CELLS) | set(ANCHORS)) - set(data))
+    print(f"cells present: {len(data)}  (missing: {missing or 'none'})")
     rng = np.random.default_rng(args.seed)
 
     # ---------- per-cell table ----------
