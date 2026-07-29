@@ -1,0 +1,107 @@
+{
+  "n_val": 1043,
+  "results": {
+    "yiiino/deberta-v3-large-cola": {
+      "id2label": {
+        "0": "unacceptable",
+        "1": "acceptable"
+      },
+      "published_kind": "mcc",
+      "published_value": 0.7193201130196331,
+      "acc_index1_acceptable": 0.8830297219558965,
+      "mcc_index1_acceptable": 0.7193201130196331,
+      "acc_index0_acceptable": 0.11697027804410355,
+      "mcc_index0_acceptable": -0.7193201130196331,
+      "chosen_orientation": "index1_is_acceptable",
+      "mcc": 0.7193201130196331,
+      "acc": 0.8830297219558965,
+      "reproduced_value": 0.7193201130196331,
+      "abs_delta_vs_published": 0.0,
+      "reproduces": true
+    },
+    "JeremiahZ/roberta-base-cola": {
+      "id2label": {
+        "0": "unacceptable",
+        "1": "acceptable"
+      },
+      "published_kind": "mcc",
+      "published_value": 0.6232164195970928,
+      "acc_index1_acceptable": 0.8456375838926175,
+      "mcc_index1_acceptable": 0.6232164195970928,
+      "acc_index0_acceptable": 0.15436241610738255,
+      "mcc_index0_acceptable": -0.6232164195970928,
+      "chosen_orientation": "index1_is_acceptable",
+      "mcc": 0.6232164195970928,
+      "acc": 0.8456375838926175,
+      "reproduced_value": 0.6232164195970928,
+      "abs_delta_vs_published": 0.0,
+      "reproduces": true
+    },
+    "mrm8488/deberta-v3-small-finetuned-cola": {
+      "id2label": {
+        "0": "unacceptable",
+        "1": "acceptable"
+      },
+      "published_kind": "mcc",
+      "published_value": 0.6333205721749096,
+      "acc_index1_acceptable": 0.8494726749760306,
+      "mcc_index1_acceptable": 0.6333205721749096,
+      "acc_index0_acceptable": 0.15052732502396932,
+      "mcc_index0_acceptable": -0.6333205721749096,
+      "chosen_orientation": "index1_is_acceptable",
+      "mcc": 0.6333205721749096,
+      "acc": 0.8494726749760306,
+      "reproduced_value": 0.6333205721749096,
+      "abs_delta_vs_published": 0.0,
+      "reproduces": true
+    },
+    "textattack/roberta-base-CoLA": {
+      "id2label": {
+        "0": "LABEL_0",
+        "1": "LABEL_1"
+      },
+      "published_kind": "acc",
+      "published_value": 0.850431447746884,
+      "acc_index1_acceptable": 0.850431447746884,
+      "mcc_index1_acceptable": 0.6382594026155579,
+      "acc_index0_acceptable": 0.14956855225311602,
+      "mcc_index0_acceptable": -0.6382594026155579,
+      "chosen_orientation": "index1_is_acceptable",
+      "mcc": 0.6382594026155579,
+      "acc": 0.850431447746884,
+      "reproduced_value": 0.850431447746884,
+      "abs_delta_vs_published": 0.0,
+      "reproduces": true
+    },
+    "textattack/bert-base-uncased-CoLA": {
+      "id2label": {
+        "0": "LABEL_0",
+        "1": "LABEL_1"
+      },
+      "published_kind": "acc",
+      "published_value": null,
+      "acc_index1_acceptable": 0.8120805369127517,
+      "mcc_index1_acceptable": 0.5338774230813111,
+      "acc_index0_acceptable": 0.18791946308724833,
+      "mcc_index0_acceptable": -0.5338774230813111,
+      "chosen_orientation": "index1_is_acceptable",
+      "mcc": 0.5338774230813111,
+      "acc": 0.8120805369127517
+    },
+    "cointegrated/roberta-large-cola-krishna2020": {
+      "id2label": {
+        "0": "LABEL_0",
+        "1": "LABEL_1"
+      },
+      "published_kind": "acc",
+      "published_value": null,
+      "acc_index1_acceptable": 0.14285714285714285,
+      "mcc_index1_acceptable": -0.6529218099246764,
+      "acc_index0_acceptable": 0.8571428571428571,
+      "mcc_index0_acceptable": 0.6529218099246764,
+      "chosen_orientation": "index0_is_acceptable",
+      "mcc": 0.6529218099246764,
+      "acc": 0.8571428571428571
+    }
+  }
+}
