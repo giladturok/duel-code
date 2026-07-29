@@ -188,3 +188,4 @@ logs/
 checkpoints/
 data/
 *.ckpt
+scripts/cola_quality/out/
