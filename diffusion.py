@@ -21,6 +21,7 @@ from exact_likelihood import (
   compute_exact_loglikelihood,
   compute_exact_loglikelihood_cached,
   compute_exact_loglikelihood_cached_permutations,
+  compute_exact_loglikelihood_cached_subset_dp,
 )
 from selection_strategies import (
     BlockLeftToRightStrategy,
@@ -28,6 +29,7 @@ from selection_strategies import (
     BlockGreedyConfidenceStrategy,
     BlockConfidenceThresholdStrategy,
     BlockPermutationStrategy,
+    BlockSubsetDPStrategy,
     ConfidenceThresholdStrategy,
     GreedyConfidenceStrategy,
     LeftToRightStrategy,
@@ -244,6 +246,11 @@ class Diffusion(L.LightningModule):
             block_size=self.block_size,
             k=self.exact_ll_k,
         )
+    elif self.exact_ll_strategy_name == 'block_subset_dp':
+        self.exact_ll_strategy = BlockSubsetDPStrategy(
+            block_size=self.block_size,
+            k=self.exact_ll_k
+        )
     elif self.exact_ll_strategy_name == 'confidence_threshold':
         self.exact_ll_strategy = ConfidenceThresholdStrategy(
             k=self.exact_ll_k,
@@ -336,6 +343,20 @@ class Diffusion(L.LightningModule):
         self.backbone.reset_kv_cache(eval_batch_size=x0.size(0))
 
         ll_total, steps, extras = compute_exact_loglikelihood_cached_permutations(
+            x0=x0,
+            model_forward_fn=model_forward_fn,
+            mask_token_id=self.mask_index,
+            strategy=self.exact_ll_strategy,
+            attention_mask=attention_mask,
+            block_size=self.block_size,
+            return_per_order=True,
+        )
+    elif isinstance(self.exact_ll_strategy, BlockSubsetDPStrategy):
+        if not hasattr(self.backbone, 'reset_kv_cache'):
+            raise RuntimeError("Backbone does not support KV caching.")
+        self.backbone.reset_kv_cache(eval_batch_size=x0.size(0))
+
+        ll_total, steps, extras = compute_exact_loglikelihood_cached_subset_dp(
             x0=x0,
             model_forward_fn=model_forward_fn,
             mask_token_id=self.mask_index,

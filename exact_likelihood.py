@@ -374,6 +374,241 @@ def _loop_fn(
     return z_k_perm, num_unmasked_perm, ll_total_perm
 
 
+# One-time warning flag for ragged batches in the subset-lattice DP.
+_SUBSET_DP_RAGGED_WARNED = False
+
+
+def compute_exact_loglikelihood_cached_subset_dp(
+    x0: Tensor,  # [B, L]
+    model_forward_fn,  # Callable: (x_block, commit=False) -> logits_block
+    mask_token_id: int,
+    strategy: Optional[object] = None,
+    attention_mask: Optional[Tensor] = None,  # [B, L]
+    block_size: Optional[int] = None,
+    return_per_order: bool = False,
+):  # -> (ll_total: [B], steps: int) or (ll_total, steps, extras)
+    """
+    Exact block-wise LL via a subset-lattice dynamic program.
+
+    Drop-in replacement for `compute_exact_loglikelihood_cached_permutations`:
+    same signature, same returns, same three reductions (oracle / uniform-order /
+    mixture), but 2**m - 1 forwards per block instead of m! * m.
+
+    Why the DP is exact
+    -------------------
+    For the SUBS parameterization the backbone receives sigma = zeros, so a
+    forward pass is a pure function of the token input. The block input is
+    determined entirely by *which* positions hold ground truth and which hold
+    MASK -- not by the order in which they were revealed. Hence
+
+        w(S, j) = log p(x0_j | z(S)),   z(S) = block with S (plus the invalid /
+                                        padding positions) set to x0, rest MASK
+
+    depends only on the revealed *set* S. A permutation's block log-likelihood
+    is the sum of w along a maximal chain 0 -> ... -> P_b of the subset lattice,
+    so all m! chains share their prefixes and one forward at state S yields
+    w(S, j) for every j not in S simultaneously.
+
+    Three reductions over the same lattice, all computed in one sweep:
+      * ORACLE   V(0)=0,  V(S|{j}) = max(V(S|{j}), V(S) + w(S,j));  read V(P_b)
+      * MIXTURE  M(0)=0,  M(S|{j}) = logaddexp(M(S|{j}), M(S) + w(S,j));
+                 read M(P_b) - log(m!)
+      * UNIFORM  no path DP: edge (S, j) is traversed by a uniformly random
+                 order with probability 1 / ((m-k) * C(m,k)) where k = |S|, so
+                 the expectation is a flat weighted sum over all edges.
+
+    States are visited as integers 0, 1, ..., 2**K - 1, which is automatically a
+    valid topological order (S \\ {j} < S numerically), so V[:, S] / M[:, S] are
+    final when S is dequeued and all K outgoing edges can be relaxed at once
+    (PUSH). No w table is ever materialized.
+
+    The oracle result should be *bitwise* identical to the permutation path:
+    fp32 addition is monotone under round-to-nearest, and both accumulate the
+    same per-position log-probs left-to-right along the same maximizing chain.
+
+    Args:
+        x0: True sequence [B, L]
+        model_forward_fn: Callable(x_block, commit=False) -> logits_block
+            - Takes current block [B, block_size]
+            - Returns logits for that block [B, block_size, V]
+            - commit=True advances the cache pointer
+        mask_token_id: Token ID for masked positions
+        strategy: Marker only (BlockSubsetDPStrategy); unused.
+        attention_mask: Valid token mask [B, L]
+        block_size: Block size for processing; must divide seq_len.
+        return_per_order: If True, additionally return the uniform-order and
+            normalized-mixture reductions.
+
+    NFE accounting:
+        `steps` counts executed commit=False forwards only (commits excluded).
+        This is NOT comparable to the permutation path's `K! * K` convention --
+        it is the whole point of this function that the count is far smaller.
+
+    Ragged batches (per-example valid sets differing within a batch) are handled
+    correctly but cost extra forwards; a one-time warning is emitted.
+    """
+    global _SUBSET_DP_RAGGED_WARNED
+
+    if block_size is None:
+        raise ValueError("block_size must be provided for cached LL computation.")
+
+    batch_size, seq_len = x0.shape
+    device = x0.device
+    steps = 0
+
+    assert seq_len % block_size == 0, (
+        f"subset-DP requires block_size to divide seq_len; got seq_len={seq_len}, "
+        f"block_size={block_size}. The KV-cache write in the backbone is a "
+        f"fixed-width slice and would shape-error on a short final block."
+    )
+    K = block_size
+    n_states = 1 << K
+    neg_inf = float('-inf')
+
+    # Compute valid positions (account for padding)
+    lengths = (
+        attention_mask.sum(dim=1)
+        if attention_mask is not None
+        else torch.full((batch_size,), seq_len, dtype=torch.long, device=device)
+    )  # [B]
+    positions = torch.arange(seq_len, device=device).unsqueeze(0)  # [1, L]
+    is_valid = positions < lengths.unsqueeze(1)  # [B, L]
+
+    # Initialize: all valid positions masked
+    mask_fill = x0.new_full(x0.shape, mask_token_id)
+    z_k = torch.where(is_valid, mask_fill, x0)  # [B, L]
+
+    num_unmasked = torch.zeros(batch_size, dtype=torch.long, device=device)  # [B]
+    ll_total = torch.zeros(batch_size, device=device)  # [B]
+    ll_total_uniform = torch.zeros(batch_size, device=device)  # [B]
+    ll_total_mixture = torch.zeros(batch_size, device=device)  # [B]
+
+    # ---- Lattice tables, built once on device ----
+    arange_K = torch.arange(K, device=device)  # [K]
+    bits_table = (
+        (torch.arange(n_states, device=device).unsqueeze(1) >> arange_K.unsqueeze(0)) & 1
+    ).bool()  # [2**K, K]
+    popc_table = bits_table.sum(dim=1)  # [2**K] int64
+    pow2 = 2 ** arange_K  # [K] int64
+
+    # coef[m, k] = 1 / ((m - k) * C(m, k)) = probability that a uniformly random
+    # order of m items traverses a given edge out of a given level-k subset.
+    coef = torch.zeros((K + 1, K + 1), dtype=torch.float64)
+    for m_ in range(K + 1):
+        for k_ in range(K + 1):
+            if k_ < m_:
+                coef[m_, k_] = 1.0 / ((m_ - k_) * math.comb(m_, k_))
+    coef_table = coef.float().to(device)  # [K+1, K+1]
+
+    logfact_table = torch.tensor(
+        [math.lgamma(i + 1) for i in range(K + 1)], dtype=torch.float64
+    ).float().to(device)  # [K+1], log(m!)
+
+    # Process each block sequentially
+    num_blocks = (seq_len + block_size - 1) // block_size
+    for block_idx in range(num_blocks):
+        block_start = block_idx * block_size
+        block_end = min(block_start + block_size, seq_len)
+        block_slice = slice(block_start, block_end)
+
+        # Skip if no valid tokens in this block.
+        # NOTE: this replicates the reference quirk (lines 256-257 of the
+        # permutation version): the commit is skipped too, leaving cache_idx
+        # unadvanced. Deliberate -- the two paths must agree exactly.
+        block_valid = is_valid[:, block_slice]  # [B, K]
+        if not block_valid.any().item():
+            continue
+
+        x0_blk = x0[:, block_slice]  # [B, K]
+        mask_blk = x0_blk.new_full(x0_blk.shape, mask_token_id)  # [B, K]
+        m = block_valid.sum(dim=1)  # [B] int64, |P_b| per example
+
+        valid_bits = (block_valid.long() * pow2).sum(dim=1)  # [B] int64 bitmask
+        valid_bits_list = valid_bits.tolist()
+        union_bits = 0
+        for v in valid_bits_list:
+            union_bits |= int(v)
+
+        if not _SUBSET_DP_RAGGED_WARNED and len(set(valid_bits_list)) > 1:
+            _SUBSET_DP_RAGGED_WARNED = True
+            warnings.warn(
+                "subset-DP: valid-position mask is not constant across the batch. "
+                "Results are still exact, but the lattice sweep visits the union "
+                "of per-example subsets and therefore costs extra forwards.",
+                stacklevel=2,
+            )
+
+        V = torch.full((batch_size, n_states), neg_inf, device=device)  # oracle
+        V[:, 0] = 0.0
+        M = torch.full((batch_size, n_states), neg_inf, device=device)  # mixture
+        M[:, 0] = 0.0
+        level_acc = torch.zeros(batch_size, K, device=device)  # uniform-order
+
+        for S in range(n_states):
+            if S & ~union_bits:
+                continue  # unreachable for every example
+            subset_ok = (S & ~valid_bits) == 0  # [B] bool: S subset-of P_b
+            if not (subset_ok & (valid_bits != S)).any():
+                continue  # S is terminal (or unreachable) for every example
+
+            s_bits = bits_table[S]  # [K] bool
+            # Invalid positions are permanent ground-truth context.
+            reveal = s_bits.unsqueeze(0) | (~block_valid)  # [B, K]
+            z_blk = torch.where(reveal, x0_blk, mask_blk)  # [B, K]
+
+            logits = model_forward_fn(z_blk, commit=False)  # [B, K, V]
+            # MUST be F.log_softmax (not _log_softmax_inplace, which mutates its
+            # input) to match the reference's arithmetic bit-for-bit.
+            lp = F.log_softmax(logits, dim=-1)  # [B, K, V]
+            true_lp = lp.gather(2, x0_blk.unsqueeze(-1)).squeeze(-1).float()  # [B, K]
+            steps += 1
+
+            edge_ok = block_valid & (~s_bits).unsqueeze(0)  # [B, K]: j in P_b \ S
+            k = int(popc_table[S])
+
+            # UNIFORM: every edge out of a level-k subset carries coef[m, k].
+            rows = torch.where(
+                edge_ok, true_lp, torch.zeros_like(true_lp)
+            ).sum(dim=1)  # [B]
+            level_acc[:, k] += coef_table[m, k] * subset_ok.float() * rows
+
+            # ORACLE / MIXTURE: push along all outgoing edges. -inf sentinels are
+            # safe here: only maximum, logaddexp and finite + (-inf) occur, and
+            # torch.logaddexp(-inf, -inf) == -inf without NaN.
+            w = torch.where(
+                edge_ok, true_lp, torch.full_like(true_lp, neg_inf)
+            )  # [B, K]
+            for j in range(K):
+                if (S >> j) & 1 or not ((union_bits >> j) & 1):
+                    continue
+                T = S | (1 << j)
+                V[:, T] = torch.maximum(V[:, T], V[:, S] + w[:, j])
+                M[:, T] = torch.logaddexp(M[:, T], M[:, S] + w[:, j])
+
+        # Read the answers at the per-example full set, which is always reached.
+        gi = valid_bits.unsqueeze(1)  # [B, 1]
+        ll_total += V.gather(1, gi).squeeze(1)
+        ll_total_mixture += M.gather(1, gi).squeeze(1) - logfact_table[m]
+        ll_total_uniform += level_acc.sum(dim=1)
+
+        # Every order ends with the block fully revealed, so the post-block state
+        # is order-independent.
+        z_k = z_k.clone()
+        z_k[:, block_slice] = x0_blk
+        num_unmasked += m
+
+        # Commit block to cache (advances cache_idx for next block)
+        model_forward_fn(z_k[:, block_slice], commit=True)
+
+    if return_per_order:
+        return ll_total, steps, {
+            'll_oracle': ll_total,
+            'll_uniform_order': ll_total_uniform,
+            'll_mixture': ll_total_mixture,
+        }
+    return ll_total, steps
+
+
 def _compute_ll_for_positions(
     log_probs: Tensor, x0: Tensor, positions: Tensor, is_active: Tensor
 ) -> Tensor:

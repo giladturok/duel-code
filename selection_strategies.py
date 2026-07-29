@@ -295,6 +295,26 @@ class BlockPermutationStrategy:
 
 
 @dataclass
+class BlockSubsetDPStrategy:
+    """
+    Oracle via subset-lattice DP: identical answer to BlockPermutationStrategy
+    in 2**block_size - 1 forwards per block instead of block_size! * block_size.
+
+    Marker class -- deliberately NOT a subclass of BlockPermutationStrategy, so
+    the isinstance dispatch in diffusion._compute_exact_ll keeps the two paths
+    disjoint. select_positions is not used.
+    """
+    block_size: int
+    k: int = 1
+
+    def select_positions(self, *args, **kwargs):
+        raise NotImplementedError(
+            "BlockSubsetDPStrategy is a marker; selection is performed inside "
+            "compute_exact_loglikelihood_cached_subset_dp."
+        )
+
+
+@dataclass
 class BlockConfidenceThresholdStrategy:
     """
     Confidence threshold selection restricted to current block.

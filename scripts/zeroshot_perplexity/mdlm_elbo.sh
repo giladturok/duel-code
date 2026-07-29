@@ -16,7 +16,7 @@
 
 # Loop over 7 zero-shot datasets
 for DATASET in ag_news lambada lm1b-gpt2 ptb scientific_papers_arxiv scientific_papers_pubmed wikitext103; do
-    python -u main.py \
+    srun python -u main.py \
         loader.num_workers=4 \
         loader.eval_batch_size=16 \
         model=small \

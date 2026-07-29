@@ -18,7 +18,7 @@
 
 export TRITON_NUM_STAGES=1
 
-python -u main.py \
+srun python -u main.py \
     loader.num_workers=4 \
     loader.eval_batch_size=64 \
     model=small \

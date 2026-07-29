@@ -5,6 +5,9 @@ slurm-*.out
 tmp.md
 *.zip
 
+# Confidential peer reviews / rebuttal drafts
+docs/rebuttals/
+
 .hf_cache
 test/
 outputs/
