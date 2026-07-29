@@ -196,6 +196,16 @@ def main():
                     print(f"    {a:<30} - {b:<30} "
                           f"diff={d:+.4f} [{lo:+.4f},{hi:+.4f}] p={p:.4f} {sig}")
 
+    # ---------- mean generative perplexity per cell, for contrast ----------
+    gen_ppl = {}
+    for cell in cd.CELLS:
+        path = os.path.join(os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__)))), "sample_logs",
+            cd.PREFIX + cell + ".txt")
+        if os.path.exists(path):
+            gen_ppl[cell] = float(np.mean(
+                cd.read_numeric_columns(path)["gen_ppl"]))
+
     # ---------- within-budget rank correlation vs DUEL ppl ----------
     print("\n=== WITHIN-BUDGET RANK CORRELATION vs DUEL PPL (Table 5) ===")
     print("Only the 12 integer-k cells are used. The confidence-threshold cells are")
@@ -214,18 +224,28 @@ def main():
         # negate ppl so that "higher is better" for both axes
         rho, prho = sps.spearmanr(acc, -ppl)
         pear, ppear = sps.pearsonr(acc, -ppl)
+        gp = np.array([gen_ppl.get(p[0], np.nan) for p in pairs])
+        rho_g = sps.spearmanr(gp, ppl).correlation if not np.isnan(gp).any() else np.nan
         corr[B] = {"n": len(pairs), "spearman": float(rho), "spearman_p": float(prho),
                    "pearson": float(pear), "pearson_p": float(ppear),
-                   "cells": [(p[0], p[1], p[2]) for p in pairs]}
+                   "genppl_spearman_vs_duel": float(rho_g),
+                   "cells": [(p[0], p[1], p[2], float(gp[i]))
+                             for i, p in enumerate(pairs)]}
         print(f"\n  NFE={B}  (n={len(pairs)} cells)")
-        for cell, a, pp in sorted(pairs, key=lambda t: -t[1]):
-            print(f"    {cell:<32} CoLA={a:.4f}  DUEL-ppl={pp:7.2f}")
+        for i, (cell, a, pp) in enumerate(
+                sorted(pairs, key=lambda t: -t[1])):
+            print(f"    {cell:<32} CoLA={a:.4f}  DUEL-ppl={pp:7.2f}  "
+                  f"gen-ppl={gen_ppl.get(cell, float('nan')):7.1f}")
         print(f"    Spearman(CoLA, -DUELppl) = {rho:+.3f} (p={prho:.3f});  "
               f"Pearson = {pear:+.3f}")
-        print(f"    CoLA ranking best->worst: "
+        print(f"    for contrast, Spearman(gen-ppl, DUEL-ppl) = {rho_g:+.3f} "
+              f"(both 'lower is better', so +1 = agrees, -1 = inverts)")
+        print(f"    CoLA    ranking best->worst: "
               f"{[cd.CELLS[c][0] for c, _, _ in sorted(pairs, key=lambda t:-t[1])]}")
-        print(f"    DUEL ranking best->worst: "
+        print(f"    DUEL    ranking best->worst: "
               f"{[cd.CELLS[c][0] for c, _, _ in sorted(pairs, key=lambda t: t[2])]}")
+        print(f"    gen-ppl ranking best->worst: "
+              f"{[cd.CELLS[c][0] for c in sorted([p[0] for p in pairs], key=lambda c: gen_ppl.get(c, 9e9))]}")
 
     # pooled, reported only to show it is the artifact the brief warns about
     allp = [(c, rows[c]["stat"], DUEL_PPL[cd.CELLS[c][0]][cd.CELLS[c][2]])

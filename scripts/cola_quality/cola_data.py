@@ -79,6 +79,23 @@ def cell_name_from_path(path):
     return os.path.basename(path)[len(PREFIX):-len(".txt")]
 
 
+def read_numeric_columns(path):
+    """Fast pass over a sample log returning only the numeric columns.
+
+    Avoids ast.literal_eval on the 4 MB text column when only gen_ppl / NFE are
+    needed (e.g. to compare the CoLA ranking against the generative-perplexity
+    ranking within a budget).
+    """
+    out = {k: [] for k in COLUMNS if k not in ("samples",)}
+    with open(path, newline="") as fh:
+        for row in csv.reader(fh):
+            for k, v in zip(COLUMNS, row):
+                if k == "samples":
+                    continue
+                out[k].append(float(v))
+    return out
+
+
 def read_sample_log(path):
     """Yield dicts, one per row. Raises on malformed column counts."""
     with open(path, newline="") as fh:

@@ -6,15 +6,15 @@
 #SBATCH --get-user-env                  # retrieve the users login environment
 #SBATCH --mem=48G                       # server memory requested (per node)
 #SBATCH -t 8:00:00                      # Time limit (hh:mm:ss)
-#SBATCH --partition=gpu                 # Request partition
-#SBATCH --exclude=sun-compute-03,snavely-compute-02,portal-compute-01,kuleshov-compute-02,lancer-compute-01,sun-compute-01
-#SBATCH --constraint="[a6000|a100|h100|h200|3090]"
+#SBATCH --partition=kuleshov,gpu         # kuleshov first: it schedules immediately
+#SBATCH --exclude=sun-compute-03,snavely-compute-02,portal-compute-01,lancer-compute-01,sun-compute-01
+#SBATCH --constraint="[a6000|a5000|a100|h100|h200|3090|a40|6000ada]"
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=4
 #SBATCH --gres=gpu:1                    # Type/number of GPUs needed
 #SBATCH --open-mode=append              # Do not overwrite logs
 #SBATCH --requeue                       # Requeue upon preemption
-#SBATCH --array=0-20
+#SBATCH --array=0-20%10
 
 # CoLA linguistic-acceptability scoring of the 17 BD3-LM sampler cells plus 4 anchors.
 # One array task per cell; each task scores both segmentation schemes with both
