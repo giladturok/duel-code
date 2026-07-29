@@ -52,6 +52,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--anchors", default=None)
     ap.add_argument("--out", default=None)
+    ap.add_argument("--npz-out", default=None,
+                    help="also dump per-passage rep_4 arrays, for joining against "
+                         "the per-passage CoLA scores")
     ap.add_argument("--limit", type=int, default=0)
     args = ap.parse_args()
 
@@ -72,12 +75,12 @@ def main():
         jobs.extend(sorted(by_cell.items()))
 
     out = {}
+    per_passage = {}
     print(f"{'cell':<32} {'rep_1':>7} {'rep_4':>7} {'rep_8':>7} "
           f"{'distinct_1':>10} {'max4gram':>9}")
     for cell, texts in jobs:
         if args.limit:
             texts = texts[: args.limit]
-        r1 = r4 = r8 = d1 = mg = []
         acc = {"rep_1": [], "rep_4": [], "rep_8": [], "distinct_1": [],
                "max_ngram_frac": []}
         for t in texts:
@@ -90,6 +93,8 @@ def main():
             acc["max_ngram_frac"].append(max_ngram_frac(ids, 4))
         out[cell] = {k: float(np.nanmean(v)) for k, v in acc.items()}
         out[cell]["n"] = len(texts)
+        per_passage[cell] = {k: np.asarray(v, dtype=np.float32)
+                             for k, v in acc.items()}
         o = out[cell]
         print(f"{cell:<32} {o['rep_1']:>7.4f} {o['rep_4']:>7.4f} {o['rep_8']:>7.4f} "
               f"{o['distinct_1']:>10.4f} {o['max_ngram_frac']:>9.5f}", flush=True)
@@ -98,6 +103,11 @@ def main():
         with open(args.out, "w") as fh:
             json.dump(out, fh, indent=2)
         print(f"wrote {args.out}")
+    if args.npz_out:
+        flat = {f"{cell}::{k}": v
+                for cell, d in per_passage.items() for k, v in d.items()}
+        np.savez_compressed(args.npz_out, **flat)
+        print(f"wrote {args.npz_out}")
 
 
 if __name__ == "__main__":
