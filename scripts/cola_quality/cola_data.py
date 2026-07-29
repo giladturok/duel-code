@@ -147,6 +147,11 @@ def segment_passage(text, tokenizer, scheme="sentence", min_tok=4, max_tok=96,
     # tokens present in the passage once document markers are removed
     body = text.replace(EOT, " ")
     n_tok_in = len(tokenizer(body, add_special_tokens=False)["input_ids"])
+    # Non-whitespace characters are the content-retention denominator. Raw token
+    # retention understates retention for degraded cells because they contain many
+    # more newline/space tokens, and a newline is not part of any sentence -- so
+    # token retention would look cell-dependent for a purely cosmetic reason.
+    n_nws_in = sum(1 for c in body if not c.isspace())
 
     if scheme == "window":
         raw = []
@@ -192,13 +197,18 @@ def segment_passage(text, tokenizer, scheme="sentence", min_tok=4, max_tok=96,
     else:
         raise ValueError(f"unknown scheme {scheme!r}")
 
-    n_tok_scored = sum(
-        len(tokenizer(u, add_special_tokens=False)["input_ids"]) for u in units)
+    unit_tok = [len(tokenizer(u, add_special_tokens=False)["input_ids"])
+                for u in units]
+    n_tok_scored = sum(unit_tok)
+    n_nws_scored = sum(1 for u in units for c in u if not c.isspace())
     stats = {
         "n_tok_in": n_tok_in,
         "n_tok_scored": n_tok_scored,
+        "n_nws_in": n_nws_in,
+        "n_nws_scored": n_nws_scored,
         "n_units": len(units),
         "n_units_short": n_short,
         "empty_passage": len(units) == 0,
+        "unit_tok": unit_tok,
     }
     return units, stats
