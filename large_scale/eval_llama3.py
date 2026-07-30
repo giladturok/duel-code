@@ -268,22 +268,26 @@ class Llama3EvalHarness(LM):
         continuation_mask = torch.zeros(batch_size, seq_len_minus_1, dtype=torch.bool, device=self.device)
         
         for i in range(batch_size):
-            # Prompt ends at prompt_lens[i], so continuation starts at prompt_lens[i]
-            # In shifted coordinates (seq_len - 1), continuation starts at prompt_lens[i]
-            # and ends at the actual sequence end
-            start_idx = prompt_lens[i]
-            end_idx = input_ids.shape[1] - 1  # Last position in shifted sequence
-            
-            # Only include positions that are part of the actual sequence (not padding)
-            actual_end = start_idx + (lengths[i] - prompt_lens[i] + (input_ids.shape[1] - lengths[i] - (input_ids.shape[1] - prompt_lens[i] - lengths[i])))
-            # Simpler: the continuation in original coords is from prompt_lens[i] to end
-            # In shifted coords, we need positions from prompt_lens[i] onwards
-            continuation_mask[i, start_idx:] = True
-            
-            # But also mask out padding (which is at the beginning due to left-padding)
+            # token_log_probs[i, j] = log p(input_ids[i, j+1] | x_{<=j}), so the log-prob
+            # of the token at ORIGINAL index q lives at SHIFTED index q-1.
+            #
+            # prompt_lens is already left-pad-adjusted in _create_batch (it is
+            # `pad_len + prompt_len`, i.e. the index where the prompt ends in the padded
+            # row), so the continuation occupies original [prompt_lens[i], W) and its
+            # log-probs occupy shifted [prompt_lens[i]-1, W-1).
+            #
+            # The old code started at prompt_lens[i], dropping the FIRST continuation
+            # token. On multiple-choice that token is the first content word -- exactly
+            # what discriminates choices sharing a "Question:...Answer:" prefix.
+            #
+            # Clamp to pad_length: for the rolling path prompt_lens[i] == pad_length, and
+            # shifted index pad_length-1 is a PADDING position, which cannot predict the
+            # first real token under left-padding. That first token is unscoreable without
+            # prepending an EOT separator (upstream lm-eval does; this harness does not) --
+            # a separate, documented limitation, not an off-by-one.
             pad_length = input_ids.shape[1] - lengths[i]
-            if pad_length > 0:
-                continuation_mask[i, :pad_length] = False
+            start_idx = max(int(prompt_lens[i]) - 1, int(pad_length))
+            continuation_mask[i, start_idx:] = True
         
         # Sum log probs over continuation tokens
         masked_log_probs = token_log_probs * continuation_mask.float()
