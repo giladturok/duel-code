@@ -103,11 +103,18 @@ def table(rows, algo, lp, title):
     # xELBO baseline = the K=1 sdpa ELBO on the same node, same sequences.
     base = next((r["s_per_batch"] for r in elbo
                  if r["backend"] == "sdpa" and r["rep"] == 1), None)
+    # Saturation correction, measured once on the swept arm (BD3-LM L'=16,
+    # greedy, k=1, one node): the ELBO is already saturated at B=32 (s/seq
+    # 0.0590 at B=8 vs 0.0592 at B=32, +0.3%), while DUEL gains 2.9% going to
+    # B=64 (3.257 -> 3.162 s/seq). So "each arm at its own best feasible B"
+    # lowers every xELBO ratio by a factor of ~0.968.
+    SAT = 0.968
 
     lines = [f"### {title}", "",
              "| arm | real fwd/seq | reported fwd/seq | fwd length | blocks/fwd |"
-             " s/batch (B=32) | s/seq | full split (GPU-h) | peak GPU mem (MiB) | ppl | xELBO |",
-             "|---|---|---|---|---|---|---|---|---|---|---|"]
+             " s/batch (B=32) | s/seq | full split (GPU-h) | peak GPU mem (MiB) | ppl"
+             " | xELBO (common B=32) | xELBO (best-feasible B) |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|"]
 
     def row(r, label, k, kind):
         spb, sig = r.get("s_per_batch"), r.get("s_per_batch_sigma")
@@ -119,7 +126,7 @@ def table(rows, algo, lp, title):
                 f"| {fmt(spb)} ± {fmt(sig)} | {fmt(sseq, 4)} "
                 f"| {fmt(sseq * N_VAL_SEQS / 3600, 2) if sseq else '--'} "
                 f"| {r.get('peak_mem_mib', '--')} | {fmt(r.get('ppl'))} "
-                f"| {fmt(xe, 1)}x |")
+                f"| {fmt(xe, 1)}x | {fmt(xe * SAT, 1) if xe else '--'}x |")
 
     for r in duel:
         mark = ""
@@ -130,32 +137,34 @@ def table(rows, algo, lp, title):
         lines.append(row(r, f"DUEL {r['sampler'].replace('block_', '')} k={r['k']}{mark}",
                          r["k"], "duel"))
 
-    lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
 
-    # MC=K is K repeated passes: cost multiplies exactly, ppl is the mean in
-    # NLL space over the first K reps (same sequences, independent t).
+    # MC=M is M repeated passes: cost multiplies exactly, ppl is the mean in
+    # NLL space over the first M reps (same sequences, independent t).
+    # M, never K: `k` already means tokens-unmasked-per-step on the DUEL rows.
     sdpa = [r for r in elbo if r["backend"] == "sdpa"]
-    for K in (1, 2, 4):
-        rs = [r for r in sdpa if r["rep"] and r["rep"] <= K]
-        if len(rs) < K:
+    for M in (1, 2, 4):
+        rs = [r for r in sdpa if r["rep"] and r["rep"] <= M]
+        if len(rs) < M:
             continue
-        spb = sum(r["s_per_batch"] for r in rs[:1]) * K
+        spb = sum(r["s_per_batch"] for r in rs[:1]) * M
         nlls = [math.log(r["ppl"]) for r in rs if r.get("ppl")]
         ppl = math.exp(sum(nlls) / len(nlls)) if nlls else None
-        spread = (max(r["ppl"] for r in rs) - min(r["ppl"] for r in rs)) if K > 1 else 0.0
+        spread = (max(r["ppl"] for r in rs) - min(r["ppl"] for r in rs)) if M > 1 else 0.0
         lines.append(
-            f"| ELBO K={K}{' **(paper protocol)**' if K == 1 else ''} "
-            f"| {K} | {K} | {fwd_len('elbo', algo, lp)} "
+            f"| ELBO M={M}{' **(paper protocol)**' if M == 1 else ''} "
+            f"| {M} | {M} | {fwd_len('elbo', algo, lp)} "
             f"| {blocks_per_fwd('elbo', algo, lp)} | {fmt(spb)} "
             f"| {fmt(spb / 32, 4)} "
             f"| {fmt(spb / 32 * N_VAL_SEQS / 3600, 2)} "
             f"| {rs[0].get('peak_mem_mib', '--')} "
-            f"| {fmt(ppl)}{f' (spread {spread:.2f})' if K > 1 else ''} "
-            f"| {fmt(spb / base, 1) if base else '--'}x |")
+            f"| {fmt(ppl)}{f' (spread {spread:.2f})' if M > 1 else ''} "
+            f"| {fmt(spb / base, 1) if base else '--'}x "
+            f"| {fmt(spb / base * SAT, 1) if base else '--'}x |")
 
     for r in elbo:
         if r["backend"] != "sdpa":
-            lines.append(row(r, f"ELBO K=1 [{r['backend']}]", 1, "elbo"))
+            lines.append(row(r, f"ELBO M=1 [{r['backend']}]", 1, "elbo"))
 
     lines.append("")
     if algo == "mdlm":
