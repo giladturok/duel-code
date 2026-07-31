@@ -1,0 +1,61 @@
+{
+  "meta": {
+    "label": "samenode_greedy_k1",
+    "sample_file": "/home/gt345/projects/scaling/duel/sample_logs/samples_bd3lm_len1024_blocksize16_block-greedy_k1.txt",
+    "perplexity_batch_size": 1,
+    "max_length": 1024,
+    "gpu": "NVIDIA RTX A6000",
+    "pytorch_cuda_alloc_conf": "expandable_segments:True",
+    "torch": "2.7.1+cu126",
+    "nfe_per_sample": 1023.0,
+    "n_samples": 1000,
+    "gen_ppl": 14.393705368041992,
+    "mauve": 0.20412151323997765
+  },
+  "timings": {
+    "00_read_sample_file": {
+      "seconds": 0.10741391500050668,
+      "peak_mem_bytes": 0
+    },
+    "01_metrics_init_tokenizer_load": {
+      "seconds": 0.11486384599993471,
+      "peak_mem_bytes": 0
+    },
+    "10_genppl_TOTAL": {
+      "seconds": 175.04149021099875,
+      "peak_mem_bytes": 4142025216
+    },
+    "11_genppl_model_load_from_pretrained": {
+      "seconds": 0.4447908669972094,
+      "peak_mem_bytes": 8540160
+    },
+    "12_genppl_retokenize": {
+      "seconds": 1.5477779989960254,
+      "peak_mem_bytes": 3158811648
+    },
+    "13_genppl_scoring_loop_plus_h2d": {
+      "seconds": 173.0489213450055,
+      "peak_mem_bytes": 4142025216
+    },
+    "20_owt_load_dataset": {
+      "seconds": 0.07690404500317527,
+      "peak_mem_bytes": 8540672
+    },
+    "21_owt_select_subset": {
+      "seconds": 0.7448192939991714,
+      "peak_mem_bytes": 8540672
+    },
+    "22_owt_truncate_encode_decode_loop": {
+      "seconds": 4.050853966000432,
+      "peak_mem_bytes": 8540672
+    },
+    "23_owt_build_TOTAL": {
+      "seconds": 4.872577305002778,
+      "peak_mem_bytes": 0
+    },
+    "30_mauve_TOTAL": {
+      "seconds": 199.26521348900133,
+      "peak_mem_bytes": 4767750656
+    }
+  }
+}

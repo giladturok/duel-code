@@ -1,0 +1,55 @@
+{
+  "meta": {
+    "gpu": "NVIDIA RTX A6000",
+    "node": "nikola-compute-16",
+    "job_id": "667617",
+    "max_text_length": 1024,
+    "note": "tiled inputs are synthetic, used for COST only; scores meaningless"
+  },
+  "featurization": [
+    {
+      "n": 250,
+      "seconds": 26.94307261891663,
+      "sec_per_text": 0.10777229047566653,
+      "synthetic": false
+    },
+    {
+      "n": 500,
+      "seconds": 54.76977845374495,
+      "sec_per_text": 0.1095395569074899,
+      "synthetic": false
+    },
+    {
+      "n": 1000,
+      "seconds": 111.13545331172645,
+      "sec_per_text": 0.11113545331172645,
+      "synthetic": false
+    },
+    {
+      "n": 2000,
+      "seconds": 222.53744518617168,
+      "sec_per_text": 0.11126872259308584,
+      "synthetic": true
+    }
+  ],
+  "clustering": [
+    {
+      "n": 1000,
+      "seconds": 2.5675360108725727,
+      "num_buckets": 100,
+      "synthetic": false
+    },
+    {
+      "n": 2000,
+      "seconds": 6.728073391132057,
+      "num_buckets": 200,
+      "synthetic": true
+    },
+    {
+      "n": 5000,
+      "seconds": 34.866622145753354,
+      "num_buckets": 500,
+      "synthetic": true
+    }
+  ]
+}
