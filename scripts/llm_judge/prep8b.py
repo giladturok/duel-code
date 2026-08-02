@@ -71,16 +71,25 @@ def main():
         strategy, k = name.rsplit("_k", 1)
         rows = {}
         skipped = 0
+        # Dedup by sample_index, keeping the LAST occurrence — refill jobs
+        # can append a complete regeneration pass on top of a partial one
+        # (seen on random_k1 nuc phase-a: 192 lines for 128 indices).
+        n_lines = 0
         with open(C8.data_path(strategy, int(k))) as fh:
             for line in fh:
                 rec = json.loads(line)
+                n_lines += 1
                 assert rec["strategy"].replace("-", "_") == strategy, rec["strategy"]
                 assert int(rec["k"]) == int(k)
                 if C8.EXPECT_NUCLEUS_P is not None:
                     assert rec["nucleus_p"] == C8.EXPECT_NUCLEUS_P, rec["nucleus_p"]
-                if rec["prefix_index"] < 128:
-                    rows[rec["prefix_index"]] = rec
-        assert sorted(rows) == list(range(128)), name
+                key = rec.get("sample_index", rec["prefix_index"])
+                if key < 128:
+                    rows[key] = rec
+        n_dups = n_lines - len(rows)
+        assert sorted(rows) == list(range(128)), (
+            f"{name}: expected exactly indices 0-127 after dedup, got "
+            f"{len(rows)} unique of {n_lines} lines")
 
         sampled, missing = {}, []
         for idx in indices:
