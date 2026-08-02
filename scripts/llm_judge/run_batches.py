@@ -25,12 +25,16 @@ import common as C
 
 import anthropic
 
+# Output directory: default is the 110M study's out/. Set LLM_JUDGE_OUT to
+# drive another study (e.g. .../out8b for the 8B prefix-grid batches).
+OUT_DIR = os.environ.get("LLM_JUDGE_OUT", C.OUT_DIR)
+
 ARMS = {
-    "abs": os.path.join(C.OUT_DIR, "abs_requests.jsonl"),
-    "pair": os.path.join(C.OUT_DIR, "pair_requests.jsonl"),
+    "abs": os.path.join(OUT_DIR, "abs_requests.jsonl"),
+    "pair": os.path.join(OUT_DIR, "pair_requests.jsonl"),
 }
-BATCH_IDS_PATH = os.path.join(C.OUT_DIR, "batch_ids.json")
-REFUSALS_PATH = os.path.join(C.OUT_DIR, "refusals.jsonl")
+BATCH_IDS_PATH = os.path.join(OUT_DIR, "batch_ids.json")
+REFUSALS_PATH = os.path.join(OUT_DIR, "refusals.jsonl")
 POLL_SECONDS = 60
 LIVE_CONCURRENCY = 8
 
@@ -162,7 +166,7 @@ def fetch_arm(client, arm, batch_id):
             results[cid] = {"custom_id": cid, "status": "missing",
                             "note": "absent_from_batch_results"}
 
-    out_path = os.path.join(C.OUT_DIR, f"{arm}_results.jsonl")
+    out_path = os.path.join(OUT_DIR, f"{arm}_results.jsonl")
     with open(out_path, "w") as fh:
         for cid in sorted(results):
             fh.write(json.dumps(results[cid]) + "\n")
@@ -203,7 +207,7 @@ async def live_arm(arm):
             print(f"{arm}: {len(results)}/{len(requests)} done")
 
     await asyncio.gather(*(one(r) for r in requests))
-    out_path = os.path.join(C.OUT_DIR, f"{arm}_results.jsonl")
+    out_path = os.path.join(OUT_DIR, f"{arm}_results.jsonl")
     with open(out_path, "w") as fh:
         for cid in sorted(results):
             fh.write(json.dumps(results[cid]) + "\n")
