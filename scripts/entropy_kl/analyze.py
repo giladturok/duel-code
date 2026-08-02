@@ -88,9 +88,9 @@ def kl_table(paths):
     for k in ks:
         nfe = 1024 // k
         print(f'\nKL(P_A || P_B) per token, nats -- NFE {nfe} (k={k})')
-        print(f"{'A \\ B':<10}" + ''.join(f'{b:>22}' for b in order))
+        print('A gen \\ B score'.ljust(16) + ''.join(f'{b:>22}' for b in order))
         for a in order:
-            line = f'{a:<10}'
+            line = f'{a:<16}'
             for b in order:
                 v = cells.get((k, a, b))
                 if v is None:
