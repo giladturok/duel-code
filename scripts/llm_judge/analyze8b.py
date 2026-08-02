@@ -16,7 +16,11 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common as C
-import common8b as C8
+import os as _os
+if _os.environ.get("JUDGE8B_VARIANT") == "nuc":
+    import common8b_nuc as C8
+else:
+    import common8b as C8
 import analyze as A  # spearman, perm_p, boot_ci, wilson helpers
 
 
@@ -36,16 +40,13 @@ def main():
     lines = []
     emit = lines.append
 
-    emit("# LLM-judge study: LLaDA-8B prefix grid (16 configs)")
+    emit(f"# LLM-judge study: {C8.STUDY_LABEL}")
     emit("")
     emit(f"Judge: `{C.MODEL}` (effort={C.EFFORT}, structured outputs), "
          f"blinded configs, seed {C8.SEED}. Budgets: k=1/2/4/8 -> NFE "
-         "256/128/64/32. Judge text = continuation truncated at first "
-         "<|endoftext|>.")
+         "256/128/64/32.")
     emit("")
-    emit("**TODO: DUEL ppl per config is not yet available** (GPU job in "
-         "flight). Fill `common8b.DUEL_PPL_8B` and rerun for the "
-         "correlation section.")
+    emit(C8.STUDY_NOTE)
     emit("")
 
     # ---------------- absolute ratings
@@ -114,14 +115,20 @@ def main():
     emit("")
     have = [nm for nm in order if C8.DUEL_PPL_8B.get(nm) is not None]
     if len(have) < 3:
-        emit("TODO: skipped — `common8b.DUEL_PPL_8B` has no values yet "
-             "(separate GPU job). Fill it and rerun.")
+        emit("TODO: skipped — `DUEL_PPL_8B` has no values yet. Fill it "
+             "and rerun.")
     else:
+        emit("| config | DUEL ppl | judge overall |")
+        emit("|---|---|---|")
+        for nm in have:
+            emit(f"| {short_name(nm)} | {C8.DUEL_PPL_8B[nm]:.2f} | "
+                 f"{stats[nm]['overall']:.2f} |")
+        emit("")
         duel = [C8.DUEL_PPL_8B[nm] for nm in have]
         overall = [stats[nm]["overall"] for nm in have]
         rho, p = A.perm_p(overall, duel)
         emit(f"Spearman(judge overall, DUEL ppl) over {len(have)} configs: "
-             f"rho={rho:+.3f}, perm. p={p:.4f}")
+             f"**rho={rho:+.3f}**, permutation p={p:.4f} (10k).")
     emit("")
 
     # ---------------- pairwise, within budget

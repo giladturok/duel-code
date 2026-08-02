@@ -20,7 +20,11 @@ from itertools import combinations
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common as C
-import common8b as C8
+import os as _os
+if _os.environ.get("JUDGE8B_VARIANT") == "nuc":
+    import common8b_nuc as C8
+else:
+    import common8b as C8
 
 
 def message_params_8b(system, user_text, schema):

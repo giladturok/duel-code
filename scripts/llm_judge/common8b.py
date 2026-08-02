@@ -17,9 +17,20 @@ DATA_DIR = ("/home/gt345/projects/scaling/exact_ll/outputs/"
 OUT_DIR = os.path.join(C.HERE, "out8b")
 
 SEED = C.SEED                  # 20260802
+BLIND_SEED = C.SEED            # blinding shuffle seed (out8b mapping)
+ID_PREFIX = "b"                # opaque config ids b00..b15
 N_ABS_INDICES = 100            # prefix indices sampled from 0..127
 N_PAIR_INDICES = 30            # first 30 of those for pairwise
 MAX_WORDS = C.MAX_WORDS        # 400-word cap (rarely binds at ~256 tokens)
+
+TRUE_CONT_PATH = None          # set below after DATA_DIR helpers
+EXPECT_NUCLEUS_P = None        # base grid has no nucleus sampling
+ASSERT_ALL_FULL = False        # 19/128 true continuations are short
+
+STUDY_LABEL = "LLaDA-8B prefix grid (16 configs)"
+STUDY_NOTE = ("Judge text = continuation truncated at first "
+              "<|endoftext|>. 19/128 true continuations are short "
+              "(full_length_continuation flag recorded per row).")
 
 # strategy -> per-config seed suffix in the canonical filenames
 FILE_SEED = {
@@ -40,13 +51,26 @@ def data_path(strategy, k):
         DATA_DIR, f"{strategy}_bs32_k{k}_seed{FILE_SEED[strategy][k]}.jsonl")
 
 
+TRUE_CONT_PATH = os.path.join(DATA_DIR, "true_continuations.json")
+
+
 ABS_SYSTEM_8B = C.ABS_SYSTEM.replace(
     "small (110M-parameter) research language model",
     "research language model")
 assert ABS_SYSTEM_8B != C.ABS_SYSTEM, "prompt edit did not apply"
 PAIR_SYSTEM_8B = C.PAIR_SYSTEM  # unchanged (only the one approved edit)
 
-# DUEL ppl per config: NOT yet available — a separate GPU job is computing
-# it. analyze8b.py skips correlation rows while values are None; fill in
-# here (keyed by config name, e.g. "greedy_k1") when the job lands.
-DUEL_PPL_8B = {name: None for name in CONFIGS}
+# Per-config DUEL conditional ppl on this grid's own samples:
+# exp(sum nll_nats / sum n_tokens) over the full_length==True rows (109 of
+# 128 per config) of sampling_grid_llada8b_prefix/scores/{config}_duel.jsonl.
+# Computed 2026-08-02 (previously a TODO hook; GPU job landed).
+DUEL_PPL_8B = {
+    "greedy_k1": 12.484, "greedy_k2": 19.578,
+    "greedy_k4": 35.366, "greedy_k8": 70.708,
+    "left_to_right_k1": 12.372, "left_to_right_k2": 24.987,
+    "left_to_right_k4": 63.393, "left_to_right_k8": 153.740,
+    "margin_k1": 12.773, "margin_k2": 16.586,
+    "margin_k4": 25.217, "margin_k8": 48.272,
+    "random_k1": 13.062, "random_k2": 14.339,
+    "random_k4": 17.177, "random_k8": 25.067,
+}

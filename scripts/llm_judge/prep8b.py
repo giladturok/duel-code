@@ -26,7 +26,10 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common as C
-import common8b as C8
+if os.environ.get("JUDGE8B_VARIANT") == "nuc":
+    import common8b_nuc as C8
+else:
+    import common8b as C8
 
 EOT = "<|endoftext|>"
 _WORD = re.compile(r"\S+")
@@ -44,18 +47,22 @@ def clean_text(text):
 
 
 def main():
-    with open(os.path.join(C8.DATA_DIR, "true_continuations.json")) as fh:
+    with open(C8.TRUE_CONT_PATH) as fh:
         true_cont = json.load(fh)
     true_ntok = {e["prefix_index"]: e["n_tokens"] for e in true_cont
                  if e["prefix_index"] < 128}
     assert len(true_ntok) == 128
+    if C8.ASSERT_ALL_FULL:
+        assert all(n == 256 for n in true_ntok.values()), (
+            "expected all-full-length true continuations")
 
     rng = random.Random(C8.SEED)
     indices = rng.sample(range(128), C8.N_ABS_INDICES)
 
     names = list(C8.CONFIGS)
-    random.Random(C8.SEED).shuffle(names)
-    mapping = {f"b{i:02d}": name for i, name in enumerate(names)}
+    random.Random(C8.BLIND_SEED).shuffle(names)
+    mapping = {f"{C8.ID_PREFIX}{i:02d}": name
+               for i, name in enumerate(names)}
     C.dump_json({"seed": C8.SEED, "mapping": mapping},
                 os.path.join(C8.OUT_DIR, "blinding.json"))
 
@@ -69,7 +76,10 @@ def main():
                 rec = json.loads(line)
                 assert rec["strategy"].replace("-", "_") == strategy, rec["strategy"]
                 assert int(rec["k"]) == int(k)
-                rows[rec["prefix_index"]] = rec
+                if C8.EXPECT_NUCLEUS_P is not None:
+                    assert rec["nucleus_p"] == C8.EXPECT_NUCLEUS_P, rec["nucleus_p"]
+                if rec["prefix_index"] < 128:
+                    rows[rec["prefix_index"]] = rec
         assert sorted(rows) == list(range(128)), name
 
         sampled, missing = {}, []
