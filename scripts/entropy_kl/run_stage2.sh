@@ -28,12 +28,18 @@ ROOT=/home/gt345/projects/scaling/duel
 EK=${ROOT}/scripts/entropy_kl
 OUT=${EK}/out
 
+# BS MUST MATCH THE BATCH SIZE USED TO GENERATE THE SAMPLES (run_stage1.sh, 8).
+# The model forward is not batch-size invariant at the ~1e-6 level, and the two
+# confidence-based rules turn that into a *different reveal order*, which changes
+# the exact likelihood by ~0.016 nats/token (1.6% in perplexity). Measured: the
+# greedy self-scoring diagonal is 0.0164 at bs=16 vs 2.2e-6 at bs=8. Rules whose
+# order is position-based (block_left_to_right) are immune. See run_diag.sh.
+#
 # Memory: `_pad_block_logits_to_full` allocates one [B, L, V] float32 tensor per
-# step, 0.2 GB per sequence in the batch. bs=16 peaks at ~3 GB and fits a 24 GB
-# 3090; bs=64 (the duel_ppl.sh default, run on 48 GB cards) OOMs there.
+# step, 0.2 GB per sequence in the batch; bs=8 peaks at ~2 GB.
 K=${1:?need k}
 N=${2:-256}
-BS=${3:-16}
+BS=${3:-8}
 
 RULES=(block_greedy block_left_to_right block_probability_margin)
 IDX=${SLURM_ARRAY_TASK_ID:-0}

@@ -68,11 +68,16 @@ def steps_table(paths):
         # 64 blocks, averaged over sequences. sum_t H_t == H(P_F) exactly.
         tot = np.array([np.nansum(np.where(sib == t, ent, 0.0), axis=1).mean()
                         for t in range(n_steps)])
+        # how many positions are revealed at step t (block 0 has 15, not 16,
+        # because position 0 is the BOS context token)
+        cnt = np.array([(sib == t).sum(axis=1).mean() for t in range(n_steps)])
         print(f'\n{rule} k={k} NFE={int(d["nfe"])}  '
               f'sum_t H_t = {tot.sum() / NTOK:.4f} nats/token '
               f'(== H_rb {d["H_rb_per_token"].mean():.4f})')
-        print('  H_t/token by within-block reveal step: ' +
+        print('  H_t / token-of-sequence : ' +
               '  '.join(f'{t}:{v / NTOK:.4f}' for t, v in enumerate(tot)))
+        print('  H_t / token-revealed-at-t: ' +
+              '  '.join(f'{t}:{v / c:.4f}' for t, (v, c) in enumerate(zip(tot, cnt))))
 
 
 def kl_table(paths):
