@@ -1165,18 +1165,17 @@ class Diffusion(L.LightningModule):
           )  # [B, k]
           
           # 4. Sample tokens for selected positions
-          x_prev = x
           x = self._sample_at_positions(x, p_x0, positions)
 
           # 5. Optional instrumentation (entropy / path log-prob tracing).
-          # No-op unless a tracer has been attached via `attach_duel_trace`.
+          # No-op unless `self._duel_trace` has been set; see
+          # scripts/entropy_kl/tracer.py.
           trace = getattr(self, '_duel_trace', None)
           if trace is not None:
               trace.record(full_logits=full_logits,
                            p_x0=p_x0,
                            positions=positions,
                            x_after=x,
-                           x_before=x_prev,
                            block_slice=block_slice,
                            step_in_block=steps - 1)
 

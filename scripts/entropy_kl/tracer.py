@@ -46,7 +46,7 @@ class DuelTrace:
         self.checks = {}
 
     @torch.no_grad()
-    def record(self, full_logits, p_x0, positions, x_after, x_before,
+    def record(self, full_logits, p_x0, positions, x_after,
                block_slice, step_in_block):
         valid = positions >= 0                      # [B, k]
         if not valid.any():
@@ -73,7 +73,6 @@ class DuelTrace:
         bi, pi = b_idx[valid], safe[valid]
         # every position must be revealed exactly once
         assert (self.n_written[bi, pi] == 0).all(), 'position revealed twice'
-        del x_before  # only used for debugging; positions are masked by construction
         self.n_written[bi, pi] = 1
         self.ent[bi, pi] = H[valid]
         self.lp[bi, pi] = lp_tok[valid]
