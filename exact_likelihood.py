@@ -82,10 +82,12 @@ def compute_exact_loglikelihood_cached(
     strategy: object,
     attention_mask: Optional[Tensor] = None,  # [B, L]
     block_size: Optional[int] = None,
+    valid_mask: Optional[Tensor] = None,  # [B, L] bool
+    lengths_override: Optional[Tensor] = None,  # [B]
 ) -> Tensor:  # [B] - total log-likelihood per sequence
     """
     Compute exact log-likelihood using block-wise KV caching.
-    
+
     Args:
         x0: True sequence
         model_forward_fn: Callable(x_block, commit=False) -> logits_block
@@ -119,11 +121,24 @@ def compute_exact_loglikelihood_cached(
     positions = torch.arange(seq_len, device=device).unsqueeze(0)  # [1, L]
     is_valid = positions < lengths.unsqueeze(1)  # [B, L]
 
+    # Optional explicit control over *which* positions are scored, decoupled
+    # from the "first `lengths` positions" prefix convention. `lengths` is what
+    # the strategy uses to locate the current block and what `active` compares
+    # against, so it stays the *coordinate* extent; `valid_mask` says which of
+    # those positions are masked-and-scored. Positions inside `lengths` that are
+    # not in `valid_mask` are given as context and counted as already unmasked,
+    # which keeps `num_unmasked // block_size` (the strategy's block pointer)
+    # aligned with the generation-time sampler.
+    if lengths_override is not None:
+        lengths = lengths_override.to(device=device, dtype=torch.long)
+    if valid_mask is not None:
+        is_valid = valid_mask.to(device=device, dtype=torch.bool)
+
     # Initialize: all valid positions masked
     mask_fill = x0.new_full(x0.shape, mask_token_id)
     z_k = torch.where(is_valid, mask_fill, x0)  # [B, L]
-    
-    num_unmasked = torch.zeros(batch_size, dtype=torch.long, device=device)  # [B]
+
+    num_unmasked = (lengths - is_valid.sum(dim=1)).clamp(min=0).to(torch.long)  # [B]
     ll_total = torch.zeros(batch_size, device=device)  # [B]
 
     # Process each block sequentially

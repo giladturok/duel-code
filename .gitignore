@@ -189,3 +189,4 @@ checkpoints/
 data/
 *.ckpt
 scripts/cola_quality/out/
+scripts/entropy_kl/out/

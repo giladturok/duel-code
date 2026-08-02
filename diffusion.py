@@ -282,7 +282,8 @@ class Diffusion(L.LightningModule):
     sigma = torch.clamp(sigma, min=sigma_min, max=sigma_max)
     return sigma
 
-  def _compute_exact_ll(self, x0, attention_mask, use_kv_cache=None):
+  def _compute_exact_ll(self, x0, attention_mask, use_kv_cache=None,
+                        valid_mask=None, lengths_override=None):
     """
     Compute exact log-likelihood using deterministic decoding.
     
@@ -293,7 +294,16 @@ class Diffusion(L.LightningModule):
     
     if self.ignore_bos:
         attention_mask[:, 0] = 0
-    
+
+    # `valid_mask` / `lengths_override` let a caller score an explicit set of
+    # positions instead of the "first `attention_mask.sum()` positions" prefix
+    # convention. Needed to score *generated* sequences, where position 0 is a
+    # given BOS context token and positions 1..L-1 are the scored event; the
+    # prefix convention would instead score BOS and drop the last token.
+    # Both default to None => byte-for-byte the previous behaviour.
+    if (valid_mask is not None or lengths_override is not None) and not use_kv_cache:
+        raise ValueError('valid_mask/lengths_override require use_kv_cache=True')
+
     def model_forward_fn(inputs, commit=False):
         """
         Forward pass that computes correct sigma for SEDD.
@@ -377,6 +387,8 @@ class Diffusion(L.LightningModule):
             strategy=self.exact_ll_strategy,
             attention_mask=attention_mask,
             block_size=self.block_size,
+            valid_mask=valid_mask,
+            lengths_override=lengths_override,
         )
     else:
         ll_total, steps = compute_exact_loglikelihood(
@@ -388,7 +400,8 @@ class Diffusion(L.LightningModule):
         )
     
     # Convert to NLL and perplexity
-    answer_lens = attention_mask.sum(dim=1)
+    answer_lens = (valid_mask.sum(dim=1) if valid_mask is not None
+                   else attention_mask.sum(dim=1))
     nll = -ll_total
     nll_per_token = nll / answer_lens
     ppl = torch.exp(nll_per_token)
@@ -1152,8 +1165,21 @@ class Diffusion(L.LightningModule):
           )  # [B, k]
           
           # 4. Sample tokens for selected positions
+          x_prev = x
           x = self._sample_at_positions(x, p_x0, positions)
-      
+
+          # 5. Optional instrumentation (entropy / path log-prob tracing).
+          # No-op unless a tracer has been attached via `attach_duel_trace`.
+          trace = getattr(self, '_duel_trace', None)
+          if trace is not None:
+              trace.record(full_logits=full_logits,
+                           p_x0=p_x0,
+                           positions=positions,
+                           x_after=x,
+                           x_before=x_prev,
+                           block_slice=block_slice,
+                           step_in_block=steps - 1)
+
       return x, steps
 
 
