@@ -27,14 +27,18 @@ import anthropic
 
 # Output directory: default is the 110M study's out/. Set LLM_JUDGE_OUT to
 # drive another study (e.g. .../out8b for the 8B prefix-grid batches).
+# Set LLM_JUDGE_REQ_PREFIX (e.g. "ct_") to drive an add-on request set in
+# the same directory: reads {prefix}abs_requests.jsonl etc., writes
+# {prefix}abs_results.jsonl, {prefix}batch_ids.json, {prefix}refusals.jsonl.
 OUT_DIR = os.environ.get("LLM_JUDGE_OUT", C.OUT_DIR)
+REQ_PREFIX = os.environ.get("LLM_JUDGE_REQ_PREFIX", "")
 
 ARMS = {
-    "abs": os.path.join(OUT_DIR, "abs_requests.jsonl"),
-    "pair": os.path.join(OUT_DIR, "pair_requests.jsonl"),
+    "abs": os.path.join(OUT_DIR, f"{REQ_PREFIX}abs_requests.jsonl"),
+    "pair": os.path.join(OUT_DIR, f"{REQ_PREFIX}pair_requests.jsonl"),
 }
-BATCH_IDS_PATH = os.path.join(OUT_DIR, "batch_ids.json")
-REFUSALS_PATH = os.path.join(OUT_DIR, "refusals.jsonl")
+BATCH_IDS_PATH = os.path.join(OUT_DIR, f"{REQ_PREFIX}batch_ids.json")
+REFUSALS_PATH = os.path.join(OUT_DIR, f"{REQ_PREFIX}refusals.jsonl")
 POLL_SECONDS = 60
 LIVE_CONCURRENCY = 8
 
@@ -166,7 +170,7 @@ def fetch_arm(client, arm, batch_id):
             results[cid] = {"custom_id": cid, "status": "missing",
                             "note": "absent_from_batch_results"}
 
-    out_path = os.path.join(OUT_DIR, f"{arm}_results.jsonl")
+    out_path = os.path.join(OUT_DIR, f"{REQ_PREFIX}{arm}_results.jsonl")
     with open(out_path, "w") as fh:
         for cid in sorted(results):
             fh.write(json.dumps(results[cid]) + "\n")
@@ -207,7 +211,7 @@ async def live_arm(arm):
             print(f"{arm}: {len(results)}/{len(requests)} done")
 
     await asyncio.gather(*(one(r) for r in requests))
-    out_path = os.path.join(OUT_DIR, f"{arm}_results.jsonl")
+    out_path = os.path.join(OUT_DIR, f"{REQ_PREFIX}{arm}_results.jsonl")
     with open(out_path, "w") as fh:
         for cid in sorted(results):
             fh.write(json.dumps(results[cid]) + "\n")
