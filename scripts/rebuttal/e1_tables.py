@@ -23,6 +23,31 @@ N_VAL_SEQS = 110480          # OWT validation split, L=1024, GPT-2 tokenizer
                              # (6905 batches x 16 in logs/mdlm_owt.log)
 
 
+def n_unmask(algo, lp, k):
+    """Unmask steps per sequence = what val/num_decoding_steps reports.
+
+    BD3-LM sets algo.ignore_bos=True, and _compute_exact_ll zeroes
+    attention_mask[:, 0]; compute_exact_loglikelihood_cached then derives
+    lengths = attention_mask.sum() = 1023, so ONE block is short and the total
+    maskable count is 1023, not 1024. Confirmed against the logged
+    val/num_decoding_steps: 1023 at k=1 for both L'=8 and L'=16, and 64 at
+    k=16 (unchanged, because ceil(15/16) == ceil(16/16)). Only k=1 moves.
+
+    MDLM runs algo.ignore_bos=false, so lengths stays 1024 and its k=1 count
+    really is 1024 -- logged value confirms it.
+
+    NOTE the mechanism differs from the generation path. There BOS is
+    pre-seeded (diffusion.py:1037), so the *first* block is short. Here
+    is_valid is positional (arange(L) < lengths), so it is the *last* position
+    that is dropped and BOS at position 0 is still masked and scored. Same
+    count, different token -- see the correctness note in the results doc.
+    """
+    nb = L // lp
+    full = 1024 if algo == "mdlm" else 1023
+    short = full - (nb - 1) * lp          # tokens in the one short block
+    return (nb - 1) * math.ceil(lp / k) + math.ceil(short / k)
+
+
 def fwd_per_seq(kind, algo, lp, k):
     """True forward passes per sequence."""
     nb = L // lp
@@ -30,16 +55,16 @@ def fwd_per_seq(kind, algo, lp, k):
         return 1                       # one forward per pass, any L'
     if algo == "mdlm":
         # Uncached path: no commit forward, but every forward is full-length.
-        return nb * math.ceil(lp / k)
+        return n_unmask(algo, lp, k)
     # Cached path: +1 commit forward per block, never counted by `steps`.
-    return nb * (math.ceil(lp / k) + 1)
+    return n_unmask(algo, lp, k) + nb
 
 
 def fwd_reported(kind, algo, lp, k):
     """What val/num_decoding_steps reports (the paper's NFE x-axis)."""
     if kind == "elbo":
         return 1
-    return (L // lp) * math.ceil(lp / k)
+    return n_unmask(algo, lp, k)
 
 
 def fwd_len(kind, algo, lp):
