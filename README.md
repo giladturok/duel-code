@@ -10,7 +10,7 @@ By [Gilad Turok](https://giladturok.github.io), [Yair Schiff](https://yair-schif
   <img src="mdm_generation_step.png" width="700">
 </p>
 
-We introduce **DUEL** ⚔️ (**D**eterministic **U**nmasking **E**xact **L**ikelihood), a framework for computing exact log-likelihoods under the test-time distribution of masked diffusion models (MDMs). By pairing a pretrained denoiser with a deterministic unmasking policy, DUEL collapses the super-exponentially large sum over unmasking orders to a single term, enabling exact (not bound) likelihood evaluation.
+We introduce **DUEL** ⚔️ (**D**eterministic **U**nmasking **E**xact **L**ikelihood), a framework for computing exact log-likelihoods under the test-time distribution of masked diffusion models (MDMs). By pairing a pretrained denoiser with a deterministic unmasking policy, DUEL collapses the super-exponentially large sum over unmasking orders to a single term, enabling exact (not bound) likelihood evaluation. **DUEL computes the likelihood *exactly*, under the sampler that is *actually used* during generation.**
 
 Key findings:
 - DUEL narrows the MDM-to-autoregressive perplexity gap by up to 32% on in-domain data and 82% on zero-shot benchmarks
